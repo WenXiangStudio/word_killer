@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#4A90D9">
+    <title>背单词</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; min-height: 100vh; }
+        .container { max-width: 500px; margin: 0 auto; padding: 15px; }
+        .header { text-align: center; padding: 20px 0; }
+        .header h1 { color: #4A90D9; font-size: 24px; }
+        .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .btn { display: block; width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; margin-bottom: 10px; }
+        .btn-primary { background: #4A90D9; color: white; }
+        .btn-secondary { background: #f0f0f0; color: #333; }
+        .btn-success { background: #5cb85c; color: white; }
+        .btn-orange { background: #FF9500; color: white; }
+        .btn:disabled { opacity: 0.5; }
+        input, select { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; margin-bottom: 10px; }
+        label { display: block; margin-bottom: 5px; color: #666; font-size: 14px; }
+        .word-display { text-align: center; padding: 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white; margin-bottom: 20px; }
+        .word-display h2 { font-size: 32px; margin-bottom: 10px; }
+        .mode-switch { display: flex; gap: 10px; margin-bottom: 15px; }
+        .mode-switch button { flex: 1; padding: 10px; border: none; border-radius: 8px; background: #f0f0f0; cursor: pointer; }
+        .mode-switch button.active { background: #4A90D9; color: white; }
+        .choice-btn { background: white; border: 2px solid #e0e0e0; color: #333; }
+        .choice-btn:hover { border-color: #4A90D9; }
+        .progress { display: flex; justify-content: space-between; font-size: 14px; color: #666; margin-bottom: 15px; }
+        .result { text-align: center; }
+        .result h2 { color: #4A90D9; font-size: 28px; margin-bottom: 20px; }
+        .stat { font-size: 48px; color: #5cb85c; margin: 20px 0; }
+        .wrong-word { padding: 10px; background: #fff3f3; border-left: 3px solid #d9534f; margin-bottom: 8px; font-size: 14px; }
+        .hidden { display: none !important; }
+        .file-info { text-align: center; color: #666; margin: 10px 0; }
+        .sample-btn { margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="setup-page">
+            <div class="header"><h1>📚 背单词</h1></div>
+            <div class="card">
+                <label>导入词书（TXT或Excel文件）</label>
+                <input type="file" id="file-input" accept=".txt,.xlsx,.xls" style="display:none">
+                <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">选择文件</button>
+                <div id="file-info" class="file-info"></div>
+                <button class="btn btn-secondary sample-btn" onclick="loadSampleWords()">使用示例词书</button>
+            </div>
+            <div class="card">
+                <label>每个List词数</label>
+                <input type="number" id="words-per-list" value="50" min="5" max="200">
+                <div id="list-count" style="text-align:center;color:#666;margin:10px 0;">将分为 0 个List</div>
+            </div>
+            <button class="btn btn-success" onclick="startLearning()">开始学习</button>
+            <button class="btn btn-orange" onclick="continueLearning()">继续上次</button>
+        </div>
+
+        <div id="learn-page" class="hidden">
+            <div class="progress">
+                <span id="list-progress">List 1/1</span>
+                <span id="word-progress">1/50</span>
+                <span id="score-display">正确: 0</span>
+            </div>
+            <div class="word-display">
+                <h2 id="word-text">word</h2>
+            </div>
+            <div class="mode-switch">
+                <button id="mode-select" onclick="switchMode('select')">选择题</button>
+                <button id="mode-input" onclick="switchMode('input')">输入</button>
+            </div>
+            <div id="choices-area"></div>
+            <div id="input-area" class="hidden">
+                <input type="text" id="answer-input" placeholder="输入中文意思" autocomplete="off">
+                <button class="btn btn-success" onclick="checkInput()">确认</button>
+            </div>
+            <div id="feedback-area"></div>
+            <button class="btn btn-secondary" onclick="showSetup()">返回</button>
+        </div>
+
+        <div id="result-page" class="hidden">
+            <div class="card result">
+                <h2>🎉 学习完成</h2>
+                <div class="stat" id="accuracy">0%</div>
+                <p id="score-text">正确: 0  错误: 0</p>
+            </div>
+            <div class="card">
+                <h3>📝 错词本</h3>
+                <div id="wrong-words-list"></div>
+            </div>
+            <button class="btn btn-primary" onclick="showSetup()">重新开始</button>
+            <button class="btn btn-orange" onclick="reviewWrongWords()">复习错词</button>
+        </div>
+    </div>
+
+    <script>
+        let app = {
+            words: [],
+            allLists: [],
+            currentListIdx: 0,
+            currentWordIdx: 0,
+            wordsPerList: 50,
+            mode: 'select',
+            score: 0,
+            wrongWords: [],
+            showAnswer: false
+        };
+
+        function updateListCount() {
+            const count = Math.ceil(app.words.length / app.wordsPerList) || 0;
+            document.getElementById('list-count').textContent = `将分为 ${count} 个List`;
+            app.wordsPerList = parseInt(document.getElementById('words-per-list').value) || 50;
+        }
+
+        document.getElementById('words-per-list').addEventListener('input', updateListCount);
+
+        document.getElementById('file-input').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const ext = file.name.split('.').pop().toLowerCase();
+            app.words = [];
+            if (ext === 'txt') {
+                const text = await file.text();
+                text.split('\n').forEach(line => {
+                    line = line.trim();
+                    if (line) {
+                        const parts = line.split(/[\t,]/);
+                        if (parts.length >= 2) {
+                            app.words.push({word: parts[0].trim(), meaning: parts[1].trim()});
+                        }
+                    }
+                });
+            } else if (ext === 'xlsx' || ext === 'xls') {
+                alert('Excel文件需要服务器环境，请使用TXT格式或示例词书');
+            }
+            document.getElementById('file-info').textContent = `已加载 ${app.words.length} 个单词`;
+            updateListCount();
+        });
+
+        function loadSampleWords() {
+            app.words = [
+                {word: "abandon", meaning: "放弃"},
+                {word: "ability", meaning: "能力"},
+                {word: "able", meaning: "能够的"},
+                {word: "about", meaning: "关于"},
+                {word: "above", meaning: "在上方"},
+                {word: "absent", meaning: "缺席的"},
+                {word: "accept", meaning: "接受"},
+                {word: "access", meaning: "访问"},
+                {word: "accident", meaning: "事故"},
+                {word: "account", meaning: "账户"},
+                {word: "achieve", meaning: "实现"},
+                {word: "across", meaning: "穿过"},
+                {word: "action", meaning: "行动"},
+                {word: "active", meaning: "积极的"},
+                {word: "activity", meaning: "活动"},
+                {word: "actually", meaning: "实际上"},
+                {word: "add", meaning: "添加"},
+                {word: "address", meaning: "地址"},
+                {word: "adjust", meaning: "调整"},
+                {word: "adult", meaning: "成年人"},
+                {word: "advance", meaning: "进步"},
+                {word: "advantage", meaning: "优势"},
+                {word: "advice", meaning: "建议"},
+                {word: "affair", meaning: "事务"},
+                {word: "affect", meaning: "影响"},
+                {word: "afford", meaning: "负担得起"},
+                {word: "afraid", meaning: "害怕的"},
+                {word: "after", meaning: "在...之后"},
+                {word: "again", meaning: "再次"},
+                {word: "against", meaning: "反对"},
+                {word: "age", meaning: "年龄"},
+                {word: "agency", meaning: "机构"},
+                {word: "agent", meaning: "代理人"},
+                {word: "agree", meaning: "同意"},
+                {word: "agreement", meaning: "协议"},
+                {word: "ahead", meaning: "向前"},
+                {word: "air", meaning: "空气"},
+                {word: "airport", meaning: "机场"},
+                {word: "album", meaning: "专辑"},
+                {word: "alive", meaning: "活着的"},
+                {word: "allow", meaning: "允许"},
+                {word: "almost", meaning: "几乎"},
+                {word: "alone", meaning: "独自的"},
+                {word: "along", meaning: "沿着"},
+                {word: "already", meaning: "已经"},
+                {word: "also", meaning: "也"},
+                {word: "alter", meaning: "改变"},
+                {word: "always", meaning: "总是"},
+                {word: "among", meaning: "在...之中"},
+                {word: "amount", meaning: "数量"},
+                {word: "ancient", meaning: "古代的"},
+                {word: "anger", meaning: "愤怒"},
+                {word: "animal", meaning: "动物"},
+                {word: "announce", meaning: "宣布"},
+                {word: "annual", meaning: "每年的"},
+                {word: "another", meaning: "另一个"},
+                {word: "answer", meaning: "回答"},
+                {word: "anxious", meaning: "焦虑的"},
+                {word: "any", meaning: "任何"},
+                {word: "anything", meaning: "任何事"},
+                {word: "appear", meaning: "出现"},
+                {word: "apple", meaning: "苹果"},
+                {word: "apply", meaning: "申请"},
+                {word: "approach", meaning: "接近"},
+                {word: "approve", meaning: "批准"},
+                {word: "area", meaning: "地区"},
+                {word: "argue", meaning: "争论"},
+                {word: "arise", meaning: "出现"},
+                {word: "arm", meaning: "手臂"},
+                {word: "around", meaning: "周围"},
+                {word: "arrange", meaning: "安排"},
+                {word: "arrival", meaning: "到达"}
+            ];
+            document.getElementById('file-info').textContent = `已加载 ${app.words.length} 个单词`;
+            updateListCount();
+        }
+
+        function splitToLists() {
+            app.allLists = [];
+            for (let i = 0; i < app.words.length; i += app.wordsPerList) {
+                app.allLists.push(app.words.slice(i, i + app.wordsPerList));
+            }
+        }
+
+        function startLearning() {
+            if (app.words.length === 0) {
+                alert('请先导入词书或使用示例');
+                return;
+            }
+            app.wordsPerList = parseInt(document.getElementById('words-per-list').value) || 50;
+            splitToLists();
+            app.currentListIdx = 0;
+            app.currentWordIdx = 0;
+            app.score = 0;
+            app.wrongWords = [];
+            localStorage.setItem('wordAppState', JSON.stringify({words: app.words, wordsPerList: app.wordsPerList}));
+            showLearnPage();
+        }
+
+        function continueLearning() {
+            const saved = localStorage.getItem('wordAppState');
+            if (saved) {
+                const state = JSON.parse(saved);
+                app.words = state.words;
+                app.wordsPerList = state.wordsPerList || 50;
+                splitToLists();
+                app.currentListIdx = 0;
+                app.currentWordIdx = 0;
+                app.score = 0;
+                app.wrongWords = [];
+                showLearnPage();
+            } else {
+                alert('没有可继续的学习记录');
+            }
+        }
+
+        function showLearnPage() {
+            document.getElementById('setup-page').classList.add('hidden');
+            document.getElementById('result-page').classList.add('hidden');
+            document.getElementById('learn-page').classList.remove('hidden');
+            showWord();
+        }
+
+        function showSetup() {
+            document.getElementById('learn-page').classList.add('hidden');
+            document.getElementById('result-page').classList.add('hidden');
+            document.getElementById('setup-page').classList.remove('hidden');
+        }
+
+        function showWord() {
+            if (app.currentListIdx >= app.allLists.length) {
+                showResult();
+                return;
+            }
+            const list = app.allLists[app.currentListIdx];
+            if (app.currentWordIdx >= list.length) {
+                app.currentListIdx++;
+                app.currentWordIdx = 0;
+                if (app.currentListIdx >= app.allLists.length) {
+                    showResult();
+                    return;
+                }
+            }
+            const word = app.allLists[app.currentListIdx][app.currentWordIdx];
+            document.getElementById('list-progress').textContent = `List ${app.currentListIdx + 1}/${app.allLists.length}`;
+            document.getElementById('word-progress').textContent = `${app.currentWordIdx + 1}/${app.allLists[app.currentListIdx].length}`;
+            document.getElementById('score-display').textContent = `正确: ${app.score}`;
+            document.getElementById('word-text').textContent = word.word;
+            document.getElementById('feedback-area').innerHTML = '';
+            document.getElementById('answer-input').value = '';
+            if (app.mode === 'select') {
+                document.getElementById('choices-area').classList.remove('hidden');
+                document.getElementById('input-area').classList.add('hidden');
+                showChoices(word);
+            } else {
+                document.getElementById('choices-area').classList.add('hidden');
+                document.getElementById('input-area').classList.remove('hidden');
+            }
+            updateModeButtons();
+        }
+
+        function updateModeButtons() {
+            document.getElementById('mode-select').classList.toggle('active', app.mode === 'select');
+            document.getElementById('mode-input').classList.toggle('active', app.mode === 'input');
+        }
+
+        function switchMode(mode) {
+            app.mode = mode;
+            showWord();
+        }
+
+        function showChoices(word) {
+            const container = document.getElementById('choices-area');
+            container.innerHTML = '';
+            const choices = generateChoices(word);
+            choices.forEach(choice => {
+                const btn = document.createElement('button');
+                btn.className = 'btn choice-btn';
+                btn.textContent = choice;
+                btn.onclick = () => checkChoice(choice, word);
+                container.appendChild(btn);
+            });
+        }
+
+        function generateChoices(word) {
+            const choices = [word.meaning];
+            const otherMeanings = app.words.filter(w => w.meaning !== word.meaning).map(w => w.meaning);
+            while (choices.length < 5 && otherMeanings.length > 0) {
+                const idx = Math.floor(Math.random() * otherMeanings.length);
+                const m = otherMeanings.splice(idx, 1)[0];
+                if (!choices.includes(m)) choices.push(m);
+            }
+            return choices.sort(() => Math.random() - 0.5);
+        }
+
+        function checkChoice(choice, word) {
+            const feedback = document.getElementById('feedback-area');
+            if (choice === word.meaning) {
+                app.score++;
+                app.currentWordIdx++;
+                feedback.innerHTML = '<p style="color:#5cb85c;font-size:18px;">✓ 正确！</p>';
+                setTimeout(showWord, 800);
+            } else {
+                app.wrongWords.push(word);
+                feedback.innerHTML = `<p style="color:#d9534f;font-size:16px;">✗ 错误！正确意思：${word.meaning}</p><button class="btn btn-secondary" onclick="nextWord()">下一个</button>`;
+            }
+        }
+
+        function checkInput() {
+            const input = document.getElementById('answer-input').value.trim();
+            const word = app.allLists[app.currentListIdx][app.currentWordIdx];
+            const feedback = document.getElementById('feedback-area');
+            if (input === word.meaning) {
+                app.score++;
+                app.currentWordIdx++;
+                feedback.innerHTML = '<p style="color:#5cb85c;font-size:18px;">✓ 正确！</p>';
+                setTimeout(showWord, 800);
+            } else {
+                app.wrongWords.push(word);
+                feedback.innerHTML = `<p style="color:#d9534f;font-size:16px;">✗ 错误！正确意思：${word.meaning}</p><button class="btn btn-secondary" onclick="nextWord()">下一个</button>`;
+            }
+        }
+
+        function nextWord() {
+            app.currentWordIdx++;
+            showWord();
+        }
+
+        function showResult() {
+            document.getElementById('learn-page').classList.add('hidden');
+            document.getElementById('result-page').classList.remove('hidden');
+            const total = app.score + app.wrongWords.length;
+            const accuracy = total > 0 ? ((app.score / total) * 100).toFixed(1) : 0;
+            document.getElementById('accuracy').textContent = accuracy + '%';
+            document.getElementById('score-text').textContent = `正确: ${app.score}  错误: ${app.wrongWords.length}`;
+            const list = document.getElementById('wrong-words-list');
+            list.innerHTML = '';
+            app.wrongWords.slice(0, 20).forEach(w => {
+                const div = document.createElement('div');
+                div.className = 'wrong-word';
+                div.textContent = `${w.word} - ${w.meaning}`;
+                list.appendChild(div);
+            });
+            if (app.wrongWords.length === 0) {
+                list.innerHTML = '<p style="color:#5cb85c;text-align:center;padding:20px;">太棒了，全部正确！🎉</p>';
+            }
+        }
+
+        function reviewWrongWords() {
+            if (app.wrongWords.length === 0) return;
+            app.words = app.wrongWords;
+            app.wrongWords = [];
+            splitToLists();
+            app.currentListIdx = 0;
+            app.currentWordIdx = 0;
+            app.score = 0;
+            showLearnPage();
+        }
+
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js');
+        }
+    </script>
+</body>
+</html>
