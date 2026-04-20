@@ -37,7 +37,9 @@
         .wrong-word { padding: 10px; background: #fff3f3; border-left: 3px solid #d9534f; margin-bottom: 8px; font-size: 14px; }
         .hidden { display: none !important; }
         .file-info { text-align: center; color: #666; margin: 10px 0; }
-        .sample-btn { margin-top: 10px; }
+        .loading { text-align: center; padding: 40px; color: #666; }
+        .loading-spinner { font-size: 32px; animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -45,31 +47,38 @@
         <div id="setup-page">
             <div class="header"><h1>📚 背单词</h1></div>
             
-            <div class="card">
-                <label>📖 选择词书</label>
-                <div style="display:flex;gap:10px;margin-bottom:15px;">
-                    <button class="btn btn-primary" onclick="selectBook('cet4')" id="btn-cet4" style="flex:1;">四级词汇</button>
-                    <button class="btn btn-secondary" onclick="selectBook('cet6')" id="btn-cet6" style="flex:1;">六级词汇</button>
-                    <button class="btn btn-secondary" onclick="selectBook('kaoyan')" id="btn-kaoyan" style="flex:1;">考研词汇</button>
+            <div id="loading-area" class="loading">
+                <div class="loading-spinner">⏳</div>
+                <p style="margin-top:10px;">正在加载词书...</p>
+            </div>
+
+            <div id="book-selection" class="hidden">
+                <div class="card">
+                    <label>📖 选择词书</label>
+                    <div style="display:flex;gap:10px;margin-bottom:15px;">
+                        <button class="btn btn-primary" onclick="selectBook('cet4')" id="btn-cet4" style="flex:1;">四级词汇</button>
+                        <button class="btn btn-secondary" onclick="selectBook('cet6')" id="btn-cet6" style="flex:1;">六级词汇</button>
+                        <button class="btn btn-secondary" onclick="selectBook('kaoyan')" id="btn-kaoyan" style="flex:1;">考研词汇</button>
+                    </div>
+                    <div id="book-info" style="text-align:center;color:#666;font-size:14px;">请选择词书</div>
                 </div>
-                <div id="book-info" style="text-align:center;color:#666;font-size:14px;">请选择词书</div>
-            </div>
 
-            <div class="card">
-                <label>📤 或导入自定义词书（TXT文件）</label>
-                <input type="file" id="file-input" accept=".txt,.xlsx,.xls" style="display:none">
-                <button class="btn btn-secondary" onclick="document.getElementById('file-input').click()">选择文件</button>
-                <div id="file-info" class="file-info"></div>
-            </div>
+                <div class="card">
+                    <label>📤 或导入自定义词书（TXT文件）</label>
+                    <input type="file" id="file-input" accept=".txt,.xlsx,.xls" style="display:none">
+                    <button class="btn btn-secondary" onclick="document.getElementById('file-input').click()">选择文件</button>
+                    <div id="file-info" class="file-info"></div>
+                </div>
 
-            <div class="card">
-                <label>🔢 每个List词数</label>
-                <input type="number" id="words-per-list" value="50" min="5" max="200">
-                <div id="list-count" style="text-align:center;color:#666;margin:10px 0;">将分为 0 个List</div>
-            </div>
+                <div class="card">
+                    <label>🔢 每个List词数</label>
+                    <input type="number" id="words-per-list" value="50" min="5" max="200">
+                    <div id="list-count" style="text-align:center;color:#666;margin:10px 0;">将分为 0 个List</div>
+                </div>
 
-            <button class="btn btn-success" onclick="startLearning()">🚀 开始学习</button>
-            <button class="btn btn-orange" onclick="continueLearning()">📌 继续上次</button>
+                <button class="btn btn-success" onclick="startLearning()">🚀 开始学习</button>
+                <button class="btn btn-orange" onclick="continueLearning()">📌 继续上次</button>
+            </div>
         </div>
 
         <div id="learn-page" class="hidden">
@@ -119,8 +128,24 @@
             mode: 'select',
             score: 0,
             wrongWords: [],
-            showAnswer: false
+            showAnswer: false,
+            wordBooks: null
         };
+
+        let currentBookKey = 'cet4';
+
+        async function loadWordBooks() {
+            try {
+                const response = await fetch('word_books.json');
+                app.wordBooks = await response.json();
+                document.getElementById('loading-area').classList.add('hidden');
+                document.getElementById('book-selection').classList.remove('hidden');
+                selectBook('cet4');
+            } catch (error) {
+                console.error('加载词书失败:', error);
+                document.getElementById('loading-area').innerHTML = '<p style="color:#d9534f;">加载词书失败，请刷新重试</p>';
+            }
+        }
 
         function updateListCount() {
             const count = Math.ceil(app.words.length / app.wordsPerList) || 0;
@@ -147,239 +172,18 @@
                     }
                 });
             } else if (ext === 'xlsx' || ext === 'xls') {
-                alert('Excel文件需要服务器环境，请使用TXT格式或示例词书');
+                alert('Excel文件需要服务器环境，请使用TXT格式');
             }
             document.getElementById('file-info').textContent = `已加载 ${app.words.length} 个单词`;
             updateListCount();
         });
 
-        // 内置词书库
-        const WORD_BOOKS = {
-            cet4: {
-                name: "四级词汇",
-                words: [
-                    {word: "abandon", meaning: "放弃"}, {word: "ability", meaning: "能力"}, {word: "able", meaning: "能够的"},
-                    {word: "abnormal", meaning: "反常的"}, {word: "aboard", meaning: "在船上"}, {word: "abolish", meaning: "废除"},
-                    {word: "abortion", meaning: "流产"}, {word: "about", meaning: "关于"}, {word: "above", meaning: "在上方"},
-                    {word: "abroad", meaning: "在国外"}, {word: "absence", meaning: "缺席"}, {word: "absent", meaning: "缺席的"},
-                    {word: "absolute", meaning: "绝对的"}, {word: "absorb", meaning: "吸收"}, {word: "abstract", meaning: "抽象的"},
-                    {word: "abundant", meaning: "丰富的"}, {word: "abuse", meaning: "滥用"}, {word: "academic", meaning: "学术的"},
-                    {word: "academy", meaning: "学院"}, {word: "accelerate", meaning: "加速"}, {word: "accent", meaning: "口音"},
-                    {word: "accept", meaning: "接受"}, {word: "access", meaning: "访问"}, {word: "accident", meaning: "事故"},
-                    {word: "accommodation", meaning: "住宿"}, {word: "accompany", meaning: "陪伴"}, {word: "accomplish", meaning: "完成"},
-                    {word: "accord", meaning: "一致"}, {word: "according", meaning: "根据"}, {word: "account", meaning: "账户"},
-                    {word: "accumulate", meaning: "积累"}, {word: "accuracy", meaning: "准确"}, {word: "accurate", meaning: "准确的"},
-                    {word: "accuse", meaning: "指责"}, {word: "accustomed", meaning: "习惯的"}, {word: "ache", meaning: "疼痛"},
-                    {word: "achieve", meaning: "实现"}, {word: "achievement", meaning: "成就"}, {word: "acid", meaning: "酸"},
-                    {word: "acknowledge", meaning: "承认"}, {word: "acquaintance", meaning: "熟人"}, {word: "acquire", meaning: "获得"},
-                    {word: "acre", meaning: "英亩"}, {word: "across", meaning: "穿过"}, {word: "act", meaning: "行动"},
-                    {word: "action", meaning: "行动"}, {word: "active", meaning: "积极的"}, {word: "activity", meaning: "活动"},
-                    {word: "actor", meaning: "演员"}, {word: "actress", meaning: "女演员"}, {word: "actual", meaning: "实际的"},
-                    {word: "actually", meaning: "实际上"}, {word: "acute", meaning: "敏锐的"}, {word: "ad", meaning: "广告"},
-                    {word: "adapt", meaning: "适应"}, {word: "add", meaning: "添加"}, {word: "addition", meaning: "加法"},
-                    {word: "additional", meaning: "额外的"}, {word: "address", meaning: "地址"}, {word: "adequate", meaning: "足够的"},
-                    {word: "adjust", meaning: "调整"}, {word: "administration", meaning: "管理"}, {word: "admire", meaning: "钦佩"},
-                    {word: "admission", meaning: "入场"}, {word: "admit", meaning: "承认"}, {word: "adopt", meaning: "采用"},
-                    {word: "adult", meaning: "成年人"}, {word: "advance", meaning: "进步"}, {word: "advanced", meaning: "先进的"},
-                    {word: "advantage", meaning: "优势"}, {word: "adventure", meaning: "冒险"}, {word: "advertise", meaning: "做广告"},
-                    {word: "advertisement", meaning: "广告"}, {word: "advice", meaning: "建议"}, {word: "advisable", meaning: "明智的"},
-                    {word: "advise", meaning: "建议"}, {word: "advocate", meaning: "提倡"}, {word: "affair", meaning: "事务"},
-                    {word: "affect", meaning: "影响"}, {word: "affection", meaning: "感情"}, {word: "afford", meaning: "负担得起"},
-                    {word: "afraid", meaning: "害怕的"}, {word: "Africa", meaning: "非洲"}, {word: "African", meaning: "非洲的"},
-                    {word: "after", meaning: "在...之后"}, {word: "afternoon", meaning: "下午"}, {word: "afterward", meaning: "后来"},
-                    {word: "again", meaning: "再次"}, {word: "against", meaning: "反对"}, {word: "age", meaning: "年龄"},
-                    {word: "agency", meaning: "机构"}, {word: "agenda", meaning: "议程"}, {word: "agent", meaning: "代理人"},
-                    {word: "aggressive", meaning: "侵略的"}, {word: "ago", meaning: "以前"}, {word: "agree", meaning: "同意"},
-                    {word: "agreement", meaning: "协议"}, {word: "agriculture", meaning: "农业"}, {word: "ahead", meaning: "向前"},
-                    {word: "aid", meaning: "帮助"}, {word: "aim", meaning: "目标"}, {word: "air", meaning: "空气"},
-                    {word: "aircraft", meaning: "飞机"}, {word: "airline", meaning: "航空公司"}, {word: "airplane", meaning: "飞机"},
-                    {word: "airport", meaning: "机场"}, {word: "alarm", meaning: "警报"}, {word: "alcohol", meaning: "酒精"},
-                    {word: "alert", meaning: "警惕的"}, {word: "alike", meaning: "相似的"}, {word: "alive", meaning: "活着的"},
-                    {word: "all", meaning: "所有的"}, {word: "allow", meaning: "允许"}, {word: "allowance", meaning: "津贴"},
-                    {word: "almost", meaning: "几乎"}, {word: "alone", meaning: "独自的"}, {word: "along", meaning: "沿着"},
-                    {word: "alongside", meaning: "在旁边"}, {word: "aloud", meaning: "大声地"}, {word: "alphabet", meaning: "字母表"},
-                    {word: "already", meaning: "已经"}, {word: "also", meaning: "也"}, {word: "alter", meaning: "改变"},
-                    {word: "alternative", meaning: "替代的"}, {word: "although", meaning: "虽然"}, {word: "altitude", meaning: "高度"},
-                    {word: "altogether", meaning: "总共"}, {word: "aluminum", meaning: "铝"}, {word: "always", meaning: "总是"},
-                    {word: "amaze", meaning: "使惊奇"}, {word: "ambassador", meaning: "大使"}, {word: "ambition", meaning: "野心"},
-                    {word: "ambulance", meaning: "救护车"}, {word: "America", meaning: "美国"}, {word: "among", meaning: "在...之中"},
-                    {word: "amount", meaning: "数量"}, {word: "ample", meaning: "充足的"}, {word: "amuse", meaning: "娱乐"},
-                    {word: "analyze", meaning: "分析"}, {word: "ancestor", meaning: "祖先"}, {word: "anchor", meaning: "锚"},
-                    {word: "ancient", meaning: "古代的"}, {word: "anger", meaning: "愤怒"}, {word: "angle", meaning: "角度"},
-                    {word: "angry", meaning: "生气的"}, {word: "animal", meaning: "动物"}, {word: "ankle", meaning: "脚踝"},
-                    {word: "announce", meaning: "宣布"}, {word: "annoy", meaning: "惹恼"}, {word: "annual", meaning: "每年的"},
-                    {word: "another", meaning: "另一个"}, {word: "answer", meaning: "回答"}, {word: "ant", meaning: "蚂蚁"},
-                    {word: "anticipate", meaning: "预期"}, {word: "anxiety", meaning: "焦虑"}, {word: "anxious", meaning: "焦虑的"},
-                    {word: "any", meaning: "任何"}, {word: "anybody", meaning: "任何人"}, {word: "anyhow", meaning: "无论如何"},
-                    {word: "anyone", meaning: "任何人"}, {word: "anything", meaning: "任何事"}, {word: "anyway", meaning: "无论如何"},
-                    {word: "anywhere", meaning: "任何地方"}, {word: "apart", meaning: "分开"}, {word: "apartment", meaning: "公寓"},
-                    {word: "apologize", meaning: "道歉"}, {word: "apology", meaning: "道歉"}, {word: "apparent", meaning: "明显的"},
-                    {word: "appeal", meaning: "呼吁"}, {word: "appear", meaning: "出现"}, {word: "appearance", meaning: "外表"},
-                    {word: "appetite", meaning: "食欲"}, {word: "applaud", meaning: "鼓掌"}, {word: "apple", meaning: "苹果"},
-                    {word: "appliance", meaning: "器具"}, {word: "applicable", meaning: "适用的"}, {word: "applicant", meaning: "申请人"},
-                    {word: "application", meaning: "申请"}, {word: "apply", meaning: "申请"}, {word: "appoint", meaning: "任命"},
-                    {word: "appointment", meaning: "约会"}, {word: "appreciate", meaning: "欣赏"}, {word: "approach", meaning: "接近"},
-                    {word: "appropriate", meaning: "适当的"}, {word: "approval", meaning: "批准"}, {word: "approve", meaning: "批准"},
-                    {word: "approximate", meaning: "大约的"}, {word: "April", meaning: "四月"}, {word: "Arab", meaning: "阿拉伯的"},
-                    {word: "arbitrary", meaning: "任意的"}, {word: "architect", meaning: "建筑师"}, {word: "architecture", meaning: "建筑"},
-                    {word: "area", meaning: "地区"}, {word: "argue", meaning: "争论"}, {word: "argument", meaning: "论点"},
-                    {word: "arise", meaning: "出现"}, {word: "arithmetic", meaning: "算术"}, {word: "arm", meaning: "手臂"},
-                    {word: "army", meaning: "军队"}, {word: "around", meaning: "周围"}, {word: "arouse", meaning: "唤醒"},
-                    {word: "arrange", meaning: "安排"}, {word: "arrangement", meaning: "安排"}, {word: "arrest", meaning: "逮捕"},
-                    {word: "arrival", meaning: "到达"}, {word: "arrive", meaning: "到达"}, {word: "arrow", meaning: "箭"},
-                    {word: "art", meaning: "艺术"}, {word: "article", meaning: "文章"}, {word: "artificial", meaning: "人造的"},
-                    {word: "artist", meaning: "艺术家"}, {word: "artistic", meaning: "艺术的"}, {word: "as", meaning: "作为"},
-                    {word: "ash", meaning: "灰"}, {word: "ashamed", meaning: "羞愧的"}, {word: "Asia", meaning: "亚洲"},
-                    {word: "Asian", meaning: "亚洲的"}, {word: "aside", meaning: "在旁边"}, {word: "ask", meaning: "问"},
-                    {word: "asleep", meaning: "睡着的"}, {word: "aspect", meaning: "方面"}, {word: "assemble", meaning: "组装"},
-                    {word: "assembly", meaning: "集会"}, {word: "assess", meaning: "评估"}, {word: "assign", meaning: "分配"},
-                    {word: "assignment", meaning: "任务"}, {word: "assist", meaning: "帮助"}, {word: "assistance", meaning: "帮助"},
-                    {word: "assistant", meaning: "助手"}, {word: "associate", meaning: "联系"}, {word: "association", meaning: "协会"},
-                    {word: "assume", meaning: "假设"}, {word: "assumption", meaning: "假设"}, {word: "assure", meaning: "保证"},
-                    {word: "astonish", meaning: "使惊讶"}, {word: "astronaut", meaning: "宇航员"}, {word: "athlete", meaning: "运动员"},
-                    {word: "atmosphere", meaning: "大气"}, {word: "atom", meaning: "原子"}, {word: "attach", meaning: "附上"},
-                    {word: "attack", meaning: "攻击"}, {word: "attain", meaning: "达到"}, {word: "attempt", meaning: "尝试"},
-                    {word: "attend", meaning: "参加"}, {word: "attention", meaning: "注意"}, {word: "attitude", meaning: "态度"},
-                    {word: "attract", meaning: "吸引"}, {word: "attraction", meaning: "吸引力"}, {word: "attractive", meaning: "有吸引力的"},
-                    {word: "attribute", meaning: "属性"}, {word: "audience", meaning: "观众"}, {word: "audio", meaning: "音频"},
-                    {word: "August", meaning: "八月"}, {word: "aunt", meaning: "阿姨"}, {word: "Australia", meaning: "澳大利亚"},
-                    {word: "author", meaning: "作者"}, {word: "authority", meaning: "权威"}, {word: "auto", meaning: "汽车"},
-                    {word: "automatic", meaning: "自动的"}, {word: "automobile", meaning: "汽车"}, {word: "autumn", meaning: "秋天"},
-                    {word: "auxiliary", meaning: "辅助的"}, {word: "available", meaning: "可用的"}, {word: "avenue", meaning: "大街"},
-                    {word: "average", meaning: "平均的"}, {word: "avoid", meaning: "避免"}, {word: "await", meaning: "等待"},
-                    {word: "awake", meaning: "醒着的"}, {word: "award", meaning: "奖励"}, {word: "aware", meaning: "意识到的"},
-                    {word: "away", meaning: "离开"}, {word: "awful", meaning: "可怕的"}, {word: "awkward", meaning: "尴尬的"},
-                    {word: "ax", meaning: "斧头"}, {word: "axis", meaning: "轴"}
-                ]
-            },
-            cet6: {
-                name: "六级词汇",
-                words: [
-                    {word: "abbreviate", meaning: "缩写"}, {word: "abnormal", meaning: "异常的"}, {word: "abolish", meaning: "废除"},
-                    {word: "abortion", meaning: "流产"}, {word: "abrupt", meaning: "突然的"}, {word: "absence", meaning: "缺席"},
-                    {word: "absorb", meaning: "吸收"}, {word: "abstract", meaning: "抽象的"}, {word: "absurd", meaning: "荒谬的"},
-                    {word: "abundance", meaning: "丰富"}, {word: "abuse", meaning: "滥用"}, {word: "academic", meaning: "学术的"},
-                    {word: "accelerate", meaning: "加速"}, {word: "accent", meaning: "口音"}, {word: "accessory", meaning: "配件"},
-                    {word: "accidental", meaning: "偶然的"}, {word: "accommodate", meaning: "容纳"}, {word: "accomplish", meaning: "完成"},
-                    {word: "accord", meaning: "一致"}, {word: "accountant", meaning: "会计"}, {word: "accumulate", meaning: "积累"},
-                    {word: "accuracy", meaning: "准确性"}, {word: "accusation", meaning: "指控"}, {word: "accustomed", meaning: "习惯的"},
-                    {word: "acid", meaning: "酸"}, {word: "acknowledge", meaning: "承认"}, {word: "acquaint", meaning: "使熟悉"},
-                    {word: "acquisition", meaning: "获得"}, {word: "activate", meaning: "激活"}, {word: "acute", meaning: "敏锐的"},
-                    {word: "adaptation", meaning: "适应"}, {word: "addict", meaning: "上瘾"}, {word: "adequate", meaning: "足够的"},
-                    {word: "adhere", meaning: "坚持"}, {word: "adjacent", meaning: "邻近的"}, {word: "adjoin", meaning: "毗邻"},
-                    {word: "administer", meaning: "管理"}, {word: "adolescent", meaning: "青少年"}, {word: "adore", meaning: "崇拜"},
-                    {word: "advantageous", meaning: "有利的"}, {word: "advent", meaning: "到来"}, {word: "adverse", meaning: "不利的"},
-                    {word: "advocate", meaning: "提倡"}, {word: "aerial", meaning: "空中的"}, {word: "aesthetic", meaning: "美学的"},
-                    {word: "affiliate", meaning: "附属"}, {word: "affirm", meaning: "肯定"}, {word: "afflict", meaning: "使痛苦"},
-                    {word: "affluent", meaning: "富裕的"}, {word: "agenda", meaning: "议程"}, {word: "aggravate", meaning: "加重"},
-                    {word: "aggregate", meaning: "总计"}, {word: "agony", meaning: "痛苦"}, {word: "agreeable", meaning: "愉快的"},
-                    {word: "air-conditioning", meaning: "空调"}, {word: "aisle", meaning: "过道"}, {word: "album", meaning: "相册"},
-                    {word: "alien", meaning: "外国人"}, {word: "allege", meaning: "声称"}, {word: "alleviate", meaning: "减轻"},
-                    {word: "alliance", meaning: "联盟"}, {word: "allocate", meaning: "分配"}, {word: "allowance", meaning: "津贴"},
-                    {word: "ally", meaning: "盟友"}, {word: "alongside", meaning: "在旁边"}, {word: "alter", meaning: "改变"},
-                    {word: "alternate", meaning: "交替的"}, {word: "ambiguous", meaning: "模糊的"}, {word: "ambition", meaning: "野心"},
-                    {word: "ambitious", meaning: "有野心的"}, {word: "amend", meaning: "修改"}, {word: "ample", meaning: "充足的"},
-                    {word: "amplify", meaning: "放大"}, {word: "amuse", meaning: "娱乐"}, {word: "analogy", meaning: "类比"},
-                    {word: "analyze", meaning: "分析"}, {word: "ancestor", meaning: "祖先"}, {word: "anchor", meaning: "锚"},
-                    {word: "anecdote", meaning: "轶事"}, {word: "anniversary", meaning: "周年"}, {word: "announce", meaning: "宣布"},
-                    {word: "annoy", meaning: "惹恼"}, {word: "annual", meaning: "每年的"}, {word: "anonymous", meaning: "匿名的"},
-                    {word: "anticipate", meaning: "预期"}, {word: "anxiety", meaning: "焦虑"}, {word: "apologize", meaning: "道歉"},
-                    {word: "apparatus", meaning: "仪器"}, {word: "appealing", meaning: "吸引人的"}, {word: "appendix", meaning: "附录"},
-                    {word: "appetite", meaning: "食欲"}, {word: "applaud", meaning: "鼓掌"}, {word: "appliance", meaning: "器具"},
-                    {word: "applicable", meaning: "适用的"}, {word: "applicant", meaning: "申请人"}, {word: "appoint", meaning: "任命"},
-                    {word: "appraisal", meaning: "评估"}, {word: "appreciable", meaning: "可观的"}, {word: "apprentice", meaning: "学徒"},
-                    {word: "appropriate", meaning: "适当的"}, {word: "approve", meaning: "批准"}, {word: "approximate", meaning: "大约的"},
-                    {word: "apt", meaning: "恰当的"}, {word: "arbitrary", meaning: "任意的"}, {word: "arc", meaning: "弧"},
-                    {word: "arch", meaning: "拱门"}, {word: "architect", meaning: "建筑师"}, {word: "arctic", meaning: "北极的"},
-                    {word: "array", meaning: "排列"}, {word: "arrogant", meaning: "傲慢的"}, {word: "artery", meaning: "动脉"},
-                    {word: "articulate", meaning: "善于表达的"}, {word: "artificial", meaning: "人造的"}, {word: "ascend", meaning: "上升"},
-                    {word: "ascertain", meaning: "确定"}, {word: "ascribe", meaning: "归因于"}, {word: "aspect", meaning: "方面"},
-                    {word: "aspiration", meaning: "抱负"}, {word: "assassination", meaning: "暗杀"}, {word: "assault", meaning: "攻击"},
-                    {word: "assemble", meaning: "组装"}, {word: "assert", meaning: "断言"}, {word: "assess", meaning: "评估"},
-                    {word: "asset", meaning: "资产"}, {word: "assign", meaning: "分配"}, {word: "assimilate", meaning: "同化"},
-                    {word: "assist", meaning: "帮助"}, {word: "associate", meaning: "联系"}, {word: "assume", meaning: "假设"},
-                    {word: "assumption", meaning: "假设"}, {word: "assurance", meaning: "保证"}, {word: "assure", meaning: "保证"},
-                    {word: "astonish", meaning: "使惊讶"}, {word: "astronomy", meaning: "天文学"}, {word: "athlete", meaning: "运动员"},
-                    {word: "atlas", meaning: "地图集"}, {word: "atmosphere", meaning: "大气"}, {word: "atom", meaning: "原子"},
-                    {word: "attach", meaning: "附上"}, {word: "attain", meaning: "达到"}, {word: "attendance", meaning: "出席"},
-                    {word: "attendant", meaning: "服务员"}, {word: "attorney", meaning: "律师"}, {word: "attribute", meaning: "属性"},
-                    {word: "auction", meaning: "拍卖"}, {word: "audio", meaning: "音频"}, {word: "audit", meaning: "审计"},
-                    {word: "authentic", meaning: "真实的"}, {word: "authoritative", meaning: "权威的"}, {word: "authorize", meaning: "授权"},
-                    {word: "automation", meaning: "自动化"}, {word: "autonomy", meaning: "自治"}, {word: "auxiliary", meaning: "辅助的"},
-                    {word: "avail", meaning: "有用"}, {word: "avert", meaning: "避免"}, {word: "aviation", meaning: "航空"},
-                    {word: "avoid", meaning: "避免"}, {word: "await", meaning: "等待"}, {word: "award", meaning: "奖励"},
-                    {word: "aware", meaning: "意识到的"}, {word: "awesome", meaning: "极好的"}, {word: "awful", meaning: "可怕的"},
-                    {word: "awkward", meaning: "尴尬的"}, {word: "axis", meaning: "轴"}
-                ]
-            },
-            kaoyan: {
-                name: "考研词汇",
-                words: [
-                    {word: "abide", meaning: "遵守"}, {word: "abnormal", meaning: "反常的"}, {word: "abolish", meaning: "废除"},
-                    {word: "abound", meaning: "大量存在"}, {word: "abrupt", meaning: "突然的"}, {word: "absence", meaning: "缺席"},
-                    {word: "absorb", meaning: "吸收"}, {word: "abstract", meaning: "抽象的"}, {word: "absurd", meaning: "荒谬的"},
-                    {word: "abundance", meaning: "丰富"}, {word: "abuse", meaning: "滥用"}, {word: "academic", meaning: "学术的"},
-                    {word: "accelerate", meaning: "加速"}, {word: "accessory", meaning: "配件"}, {word: "accidental", meaning: "偶然的"},
-                    {word: "acclaim", meaning: "欢呼"}, {word: "accommodate", meaning: "容纳"}, {word: "accomplish", meaning: "完成"},
-                    {word: "accord", meaning: "一致"}, {word: "accountable", meaning: "负责的"}, {word: "accumulate", meaning: "积累"},
-                    {word: "accuracy", meaning: "准确性"}, {word: "accusation", meaning: "指控"}, {word: "accustom", meaning: "使习惯"},
-                    {word: "acid", meaning: "酸"}, {word: "acknowledge", meaning: "承认"}, {word: "acquaint", meaning: "使熟悉"},
-                    {word: "acquisition", meaning: "获得"}, {word: "activate", meaning: "激活"}, {word: "acute", meaning: "敏锐的"},
-                    {word: "adapt", meaning: "适应"}, {word: "addict", meaning: "上瘾"}, {word: "adequate", meaning: "足够的"},
-                    {word: "adhere", meaning: "坚持"}, {word: "adjacent", meaning: "邻近的"}, {word: "adjoin", meaning: "毗邻"},
-                    {word: "administer", meaning: "管理"}, {word: "adolescent", meaning: "青少年"}, {word: "adore", meaning: "崇拜"},
-                    {word: "advantageous", meaning: "有利的"}, {word: "advent", meaning: "到来"}, {word: "adverse", meaning: "不利的"},
-                    {word: "advocate", meaning: "提倡"}, {word: "aerial", meaning: "空中的"}, {word: "aesthetic", meaning: "美学的"},
-                    {word: "affiliate", meaning: "附属"}, {word: "affirm", meaning: "肯定"}, {word: "afflict", meaning: "使痛苦"},
-                    {word: "affluent", meaning: "富裕的"}, {word: "agenda", meaning: "议程"}, {word: "aggravate", meaning: "加重"},
-                    {word: "aggregate", meaning: "总计"}, {word: "agitate", meaning: "煽动"}, {word: "agony", meaning: "痛苦"},
-                    {word: "agreeable", meaning: "愉快的"}, {word: "alarm", meaning: "警报"}, {word: "alert", meaning: "警惕的"},
-                    {word: "alien", meaning: "外国人"}, {word: "alienate", meaning: "使疏远"}, {word: "allege", meaning: "声称"},
-                    {word: "alleviate", meaning: "减轻"}, {word: "alliance", meaning: "联盟"}, {word: "allocate", meaning: "分配"},
-                    {word: "allowance", meaning: "津贴"}, {word: "ally", meaning: "盟友"}, {word: "alter", meaning: "改变"},
-                    {word: "alternate", meaning: "交替的"}, {word: "ambiguous", meaning: "模糊的"}, {word: "ambition", meaning: "野心"},
-                    {word: "ambitious", meaning: "有野心的"}, {word: "amend", meaning: "修改"}, {word: "ample", meaning: "充足的"},
-                    {word: "amplify", meaning: "放大"}, {word: "analogy", meaning: "类比"}, {word: "analyze", meaning: "分析"},
-                    {word: "ancestor", meaning: "祖先"}, {word: "anchor", meaning: "锚"}, {word: "anecdote", meaning: "轶事"},
-                    {word: "anniversary", meaning: "周年"}, {word: "announce", meaning: "宣布"}, {word: "annoy", meaning: "惹恼"},
-                    {word: "annual", meaning: "每年的"}, {word: "anonymous", meaning: "匿名的"}, {word: "anticipate", meaning: "预期"},
-                    {word: "anxiety", meaning: "焦虑"}, {word: "apologize", meaning: "道歉"}, {word: "apparatus", meaning: "仪器"},
-                    {word: "appealing", meaning: "吸引人的"}, {word: "appendix", meaning: "附录"}, {word: "appetite", meaning: "食欲"},
-                    {word: "applaud", meaning: "鼓掌"}, {word: "appliance", meaning: "器具"}, {word: "applicable", meaning: "适用的"},
-                    {word: "applicant", meaning: "申请人"}, {word: "appoint", meaning: "任命"}, {word: "appraisal", meaning: "评估"},
-                    {word: "appreciable", meaning: "可观的"}, {word: "apprentice", meaning: "学徒"}, {word: "appropriate", meaning: "适当的"},
-                    {word: "approve", meaning: "批准"}, {word: "apt", meaning: "恰当的"}, {word: "arbitrary", meaning: "任意的"},
-                    {word: "arc", meaning: "弧"}, {word: "arch", meaning: "拱门"}, {word: "architect", meaning: "建筑师"},
-                    {word: "arctic", meaning: "北极的"}, {word: "array", meaning: "排列"}, {word: "arrogant", meaning: "傲慢的"},
-                    {word: "artery", meaning: "动脉"}, {word: "articulate", meaning: "善于表达的"}, {word: "artificial", meaning: "人造的"},
-                    {word: "ascend", meaning: "上升"}, {word: "ascertain", meaning: "确定"}, {word: "ascribe", meaning: "归因于"},
-                    {word: "aspect", meaning: "方面"}, {word: "aspiration", meaning: "抱负"}, {word: "assassination", meaning: "暗杀"},
-                    {word: "assault", meaning: "攻击"}, {word: "assemble", meaning: "组装"}, {word: "assert", meaning: "断言"},
-                    {word: "assess", meaning: "评估"}, {word: "asset", meaning: "资产"}, {word: "assign", meaning: "分配"},
-                    {word: "assimilate", meaning: "同化"}, {word: "assist", meaning: "帮助"}, {word: "associate", meaning: "联系"},
-                    {word: "assume", meaning: "假设"}, {word: "assumption", meaning: "假设"}, {word: "assurance", meaning: "保证"},
-                    {word: "assure", meaning: "保证"}, {word: "astonish", meaning: "使惊讶"}, {word: "astronomy", meaning: "天文学"},
-                    {word: "athlete", meaning: "运动员"}, {word: "atlas", meaning: "地图集"}, {word: "atmosphere", meaning: "大气"},
-                    {word: "atom", meaning: "原子"}, {word: "attach", meaning: "附上"}, {word: "attain", meaning: "达到"},
-                    {word: "attendance", meaning: "出席"}, {word: "attendant", meaning: "服务员"}, {word: "attorney", meaning: "律师"},
-                    {word: "attribute", meaning: "属性"}, {word: "auction", meaning: "拍卖"}, {word: "audio", meaning: "音频"},
-                    {word: "audit", meaning: "审计"}, {word: "authentic", meaning: "真实的"}, {word: "authoritative", meaning: "权威的"},
-                    {word: "authorize", meaning: "授权"}, {word: "automation", meaning: "自动化"}, {word: "autonomy", meaning: "自治"},
-                    {word: "auxiliary", meaning: "辅助的"}, {word: "avail", meaning: "有用"}, {word: "avert", meaning: "避免"},
-                    {word: "aviation", meaning: "航空"}, {word: "avoid", meaning: "避免"}, {word: "await", meaning: "等待"},
-                    {word: "award", meaning: "奖励"}, {word: "aware", meaning: "意识到的"}, {word: "awesome", meaning: "极好的"},
-                    {word: "awful", meaning: "可怕的"}, {word: "awkward", meaning: "尴尬的"}, {word: "axis", meaning: "轴"}
-                ]
-            }
-        };
-
-        let currentBook = 'cet4';
-
         function selectBook(bookKey) {
-            currentBook = bookKey;
-            app.words = [...WORD_BOOKS[bookKey].words];
+            currentBookKey = bookKey;
+            if (!app.wordBooks || !app.wordBooks[bookKey]) return;
             
-            // 更新按钮样式
+            app.words = [...app.wordBooks[bookKey]];
+            
             ['cet4', 'cet6', 'kaoyan'].forEach(key => {
                 const btn = document.getElementById('btn-' + key);
                 if (key === bookKey) {
@@ -391,18 +195,10 @@
                 }
             });
             
-            const book = WORD_BOOKS[bookKey];
-            document.getElementById('book-info').textContent = `已选择：${book.name}（${book.words.length}词）`;
+            const bookNames = {cet4: '四级词汇', cet6: '六级词汇', kaoyan: '考研词汇'};
+            document.getElementById('book-info').textContent = `已选择：${bookNames[bookKey]}（${app.words.length}词）`;
             document.getElementById('file-info').textContent = '';
             updateListCount();
-        }
-
-        function loadBuiltInWords() {
-            selectBook('cet4');
-        }
-
-        function loadSampleWords() {
-            selectBook('cet4');
         }
 
         function splitToLists() {
@@ -414,7 +210,7 @@
 
         function startLearning() {
             if (app.words.length === 0) {
-                alert('请先导入词书或使用示例');
+                alert('请先选择或导入词书');
                 return;
             }
             app.wordsPerList = parseInt(document.getElementById('words-per-list').value) || 50;
@@ -423,7 +219,11 @@
             app.currentWordIdx = 0;
             app.score = 0;
             app.wrongWords = [];
-            localStorage.setItem('wordAppState', JSON.stringify({words: app.words, wordsPerList: app.wordsPerList}));
+            localStorage.setItem('wordAppState', JSON.stringify({
+                words: app.words,
+                wordsPerList: app.wordsPerList,
+                currentBook: currentBookKey
+            }));
             showLearnPage();
         }
 
@@ -433,6 +233,10 @@
                 const state = JSON.parse(saved);
                 app.words = state.words;
                 app.wordsPerList = state.wordsPerList || 50;
+                currentBookKey = state.currentBook || 'cet4';
+                if (app.wordBooks && app.wordBooks[currentBookKey]) {
+                    selectBook(currentBookKey);
+                }
                 splitToLists();
                 app.currentListIdx = 0;
                 app.currentWordIdx = 0;
@@ -587,15 +391,7 @@
             showLearnPage();
         }
 
-        // 页面加载时自动加载内置词书
-        window.addEventListener('load', function() {
-            loadBuiltInWords();
-            // 如果有保存的学习进度，询问是否继续
-            const saved = localStorage.getItem('wordAppState');
-            if (saved && confirm('检测到上次学习进度，是否继续？')) {
-                continueLearning();
-            }
-        });
+        window.addEventListener('load', loadWordBooks);
 
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js');
