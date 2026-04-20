@@ -20,11 +20,13 @@
         .btn-secondary { background: #f0f0f0; color: #333; }
         .btn-success { background: #5cb85c; color: white; }
         .btn-orange { background: #FF9500; color: white; }
+        .btn-danger { background: #d9534f; color: white; }
         .btn:disabled { opacity: 0.5; }
         input, select { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; margin-bottom: 10px; }
         label { display: block; margin-bottom: 5px; color: #666; font-size: 14px; }
         .word-display { text-align: center; padding: 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white; margin-bottom: 20px; }
         .word-display h2 { font-size: 32px; margin-bottom: 10px; }
+        .word-display .phonetic { font-size: 18px; opacity: 0.9; margin-top: 5px; }
         .mode-switch { display: flex; gap: 10px; margin-bottom: 15px; }
         .mode-switch button { flex: 1; padding: 10px; border: none; border-radius: 8px; background: #f0f0f0; cursor: pointer; }
         .mode-switch button.active { background: #4A90D9; color: white; }
@@ -40,10 +42,24 @@
         .loading { text-align: center; padding: 40px; color: #666; }
         .loading-spinner { font-size: 32px; animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .list-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .list-item { background: white; border: 2px solid #e0e0e0; border-radius: 10px; padding: 15px; text-align: center; cursor: pointer; }
+        .list-item:hover { border-color: #4A90D9; }
+        .list-item .list-num { font-size: 18px; font-weight: bold; color: #4A90D9; }
+        .list-item .list-count { font-size: 12px; color: #999; margin-top: 5px; }
+        .preview-word { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #f0f0f0; }
+        .preview-word:last-child { border-bottom: none; }
+        .preview-word .pw-en { font-size: 16px; font-weight: 500; color: #333; }
+        .preview-word .pw-phonetic { font-size: 13px; color: #888; margin-top: 2px; }
+        .preview-word .pw-cn { font-size: 14px; color: #666; text-align: right; max-width: 60%; }
+        .speak-btn { background: #4A90D9; color: white; border: none; border-radius: 50%; width: 40px; height: 40px; font-size: 18px; cursor: pointer; margin-left: 10px; }
+        .speak-btn:hover { background: #357abd; }
+        .word-header { display: flex; align-items: center; justify-content: center; gap: 10px; }
     </style>
 </head>
 <body>
     <div class="container">
+        <!-- 设置页 -->
         <div id="setup-page">
             <div class="header"><h1>📚 背单词</h1></div>
             
@@ -76,11 +92,29 @@
                     <div id="list-count" style="text-align:center;color:#666;margin:10px 0;">将分为 0 个List</div>
                 </div>
 
-                <button class="btn btn-success" onclick="startLearning()">🚀 开始学习</button>
+                <button class="btn btn-success" onclick="showListSelection()">🚀 开始学习</button>
                 <button class="btn btn-orange" onclick="continueLearning()">📌 继续上次</button>
             </div>
         </div>
 
+        <!-- List选择页 -->
+        <div id="list-page" class="hidden">
+            <div class="header"><h1>📋 选择List</h1></div>
+            <div class="card">
+                <div id="list-grid" class="list-grid"></div>
+            </div>
+            <button class="btn btn-secondary" onclick="showSetup()">返回</button>
+        </div>
+
+        <!-- List预览页 -->
+        <div id="preview-page" class="hidden">
+            <div class="header"><h1 id="preview-title">List 1</h1></div>
+            <div class="card" id="preview-words" style="max-height: 60vh; overflow-y: auto;"></div>
+            <button class="btn btn-success" onclick="startListLearning()">🚀 开始背诵</button>
+            <button class="btn btn-secondary" onclick="showListSelection()">返回</button>
+        </div>
+
+        <!-- 学习页 -->
         <div id="learn-page" class="hidden">
             <div class="progress">
                 <span id="list-progress">List 1/1</span>
@@ -88,7 +122,11 @@
                 <span id="score-display">正确: 0</span>
             </div>
             <div class="word-display">
-                <h2 id="word-text">word</h2>
+                <div class="word-header">
+                    <h2 id="word-text">word</h2>
+                    <button class="speak-btn" onclick="speakWord()">🔊</button>
+                </div>
+                <div class="phonetic" id="word-phonetic">/phonetic/</div>
             </div>
             <div class="mode-switch">
                 <button id="mode-select" onclick="switchMode('select')">选择题</button>
@@ -103,6 +141,7 @@
             <button class="btn btn-secondary" onclick="showSetup()">返回</button>
         </div>
 
+        <!-- 结果页 -->
         <div id="result-page" class="hidden">
             <div class="card result">
                 <h2>🎉 学习完成</h2>
@@ -129,22 +168,41 @@
             score: 0,
             wrongWords: [],
             showAnswer: false,
-            wordBooks: null
+            wordBooks: null,
+            selectedListIdx: 0
         };
 
         let currentBookKey = 'cet4';
 
         async function loadWordBooks() {
+            const cached = localStorage.getItem('wordBooksCache');
+            if (cached) {
+                try {
+                    app.wordBooks = JSON.parse(cached);
+                    console.log('从缓存加载词书');
+                    showBookSelection();
+                    return;
+                } catch (e) {
+                    console.error('缓存解析失败');
+                }
+            }
+
             try {
                 const response = await fetch('word_books.json');
                 app.wordBooks = await response.json();
-                document.getElementById('loading-area').classList.add('hidden');
-                document.getElementById('book-selection').classList.remove('hidden');
-                selectBook('cet4');
+                localStorage.setItem('wordBooksCache', JSON.stringify(app.wordBooks));
+                console.log('从网络加载词书并缓存');
+                showBookSelection();
             } catch (error) {
                 console.error('加载词书失败:', error);
                 document.getElementById('loading-area').innerHTML = '<p style="color:#d9534f;">加载词书失败，请刷新重试</p>';
             }
+        }
+
+        function showBookSelection() {
+            document.getElementById('loading-area').classList.add('hidden');
+            document.getElementById('book-selection').classList.remove('hidden');
+            selectBook('cet4');
         }
 
         function updateListCount() {
@@ -171,8 +229,6 @@
                         }
                     }
                 });
-            } else if (ext === 'xlsx' || ext === 'xls') {
-                alert('Excel文件需要服务器环境，请使用TXT格式');
             }
             document.getElementById('file-info').textContent = `已加载 ${app.words.length} 个单词`;
             updateListCount();
@@ -181,7 +237,6 @@
         function selectBook(bookKey) {
             currentBookKey = bookKey;
             if (!app.wordBooks || !app.wordBooks[bookKey]) return;
-            
             app.words = [...app.wordBooks[bookKey]];
             
             ['cet4', 'cet6', 'kaoyan'].forEach(key => {
@@ -208,21 +263,62 @@
             }
         }
 
-        function startLearning() {
+        function showListSelection() {
             if (app.words.length === 0) {
                 alert('请先选择或导入词书');
                 return;
             }
             app.wordsPerList = parseInt(document.getElementById('words-per-list').value) || 50;
             splitToLists();
-            app.currentListIdx = 0;
+            
+            document.getElementById('setup-page').classList.add('hidden');
+            document.getElementById('list-page').classList.remove('hidden');
+            
+            const grid = document.getElementById('list-grid');
+            grid.innerHTML = '';
+            app.allLists.forEach((list, idx) => {
+                const div = document.createElement('div');
+                div.className = 'list-item';
+                div.innerHTML = `<div class="list-num">List ${idx + 1}</div><div class="list-count">${list.length}词</div>`;
+                div.onclick = () => showListPreview(idx);
+                grid.appendChild(div);
+            });
+        }
+
+        function showListPreview(listIdx) {
+            app.selectedListIdx = listIdx;
+            const list = app.allLists[listIdx];
+            
+            document.getElementById('list-page').classList.add('hidden');
+            document.getElementById('preview-page').classList.remove('hidden');
+            document.getElementById('preview-title').textContent = `List ${listIdx + 1} 预览`;
+            
+            const container = document.getElementById('preview-words');
+            container.innerHTML = '';
+            list.forEach(word => {
+                const div = document.createElement('div');
+                div.className = 'preview-word';
+                div.innerHTML = `
+                    <div>
+                        <div class="pw-en">${word.word}</div>
+                        <div class="pw-phonetic">${word.phonetic || ''}</div>
+                    </div>
+                    <div class="pw-cn">${word.meaning}</div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function startListLearning() {
+            app.currentListIdx = app.selectedListIdx;
             app.currentWordIdx = 0;
             app.score = 0;
             app.wrongWords = [];
             localStorage.setItem('wordAppState', JSON.stringify({
                 words: app.words,
                 wordsPerList: app.wordsPerList,
-                currentBook: currentBookKey
+                currentBook: currentBookKey,
+                currentListIdx: app.currentListIdx
             }));
             showLearnPage();
         }
@@ -234,11 +330,11 @@
                 app.words = state.words;
                 app.wordsPerList = state.wordsPerList || 50;
                 currentBookKey = state.currentBook || 'cet4';
+                app.currentListIdx = state.currentListIdx || 0;
                 if (app.wordBooks && app.wordBooks[currentBookKey]) {
                     selectBook(currentBookKey);
                 }
                 splitToLists();
-                app.currentListIdx = 0;
                 app.currentWordIdx = 0;
                 app.score = 0;
                 app.wrongWords = [];
@@ -250,6 +346,8 @@
 
         function showLearnPage() {
             document.getElementById('setup-page').classList.add('hidden');
+            document.getElementById('list-page').classList.add('hidden');
+            document.getElementById('preview-page').classList.add('hidden');
             document.getElementById('result-page').classList.add('hidden');
             document.getElementById('learn-page').classList.remove('hidden');
             showWord();
@@ -257,6 +355,8 @@
 
         function showSetup() {
             document.getElementById('learn-page').classList.add('hidden');
+            document.getElementById('list-page').classList.add('hidden');
+            document.getElementById('preview-page').classList.add('hidden');
             document.getElementById('result-page').classList.add('hidden');
             document.getElementById('setup-page').classList.remove('hidden');
         }
@@ -280,6 +380,7 @@
             document.getElementById('word-progress').textContent = `${app.currentWordIdx + 1}/${app.allLists[app.currentListIdx].length}`;
             document.getElementById('score-display').textContent = `正确: ${app.score}`;
             document.getElementById('word-text').textContent = word.word;
+            document.getElementById('word-phonetic').textContent = word.phonetic || '';
             document.getElementById('feedback-area').innerHTML = '';
             document.getElementById('answer-input').value = '';
             if (app.mode === 'select') {
@@ -291,6 +392,16 @@
                 document.getElementById('input-area').classList.remove('hidden');
             }
             updateModeButtons();
+        }
+
+        function speakWord() {
+            const word = app.allLists[app.currentListIdx][app.currentWordIdx];
+            if ('speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(word.word);
+                utterance.lang = 'en-US';
+                utterance.rate = 0.8;
+                window.speechSynthesis.speak(utterance);
+            }
         }
 
         function updateModeButtons() {
