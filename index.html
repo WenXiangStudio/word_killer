@@ -285,7 +285,7 @@
             });
         }
 
-        function showListPreview(listIdx) {
+        async function showListPreview(listIdx) {
             app.selectedListIdx = listIdx;
             const list = app.allLists[listIdx];
             
@@ -295,18 +295,34 @@
             
             const container = document.getElementById('preview-words');
             container.innerHTML = '';
+            
+            // 先显示单词，不带音标
             list.forEach(word => {
                 const div = document.createElement('div');
                 div.className = 'preview-word';
+                div.id = `pw-${word.word}`;
                 div.innerHTML = `
                     <div>
                         <div class="pw-en">${word.word}</div>
-                        <div class="pw-phonetic">${word.phonetic || ''}</div>
+                        <div class="pw-phonetic" id="ph-${word.word}">${word.phonetic || '...'}</div>
                     </div>
                     <div class="pw-cn">${word.meaning}</div>
                 `;
                 container.appendChild(div);
             });
+            
+            // 后台异步加载音标
+            for (const word of list) {
+                if (!word.phonetic) {
+                    const phonetic = await fetchPhonetic(word.word);
+                    const phEl = document.getElementById(`ph-${word.word}`);
+                    if (phEl && phonetic) {
+                        phEl.textContent = phonetic;
+                    } else if (phEl) {
+                        phEl.textContent = '';
+                    }
+                }
+            }
         }
 
         function startListLearning() {
@@ -361,7 +377,7 @@
             document.getElementById('setup-page').classList.remove('hidden');
         }
 
-        function showWord() {
+        async function showWord() {
             if (app.currentListIdx >= app.allLists.length) {
                 showResult();
                 return;
@@ -380,7 +396,14 @@
             document.getElementById('word-progress').textContent = `${app.currentWordIdx + 1}/${app.allLists[app.currentListIdx].length}`;
             document.getElementById('score-display').textContent = `正确: ${app.score}`;
             document.getElementById('word-text').textContent = word.word;
-            document.getElementById('word-phonetic').textContent = word.phonetic || '';
+            
+            // 自动获取音标
+            let phonetic = word.phonetic || '';
+            if (!phonetic) {
+                phonetic = await fetchPhonetic(word.word);
+            }
+            document.getElementById('word-phonetic').textContent = phonetic;
+            
             document.getElementById('feedback-area').innerHTML = '';
             document.getElementById('answer-input').value = '';
             if (app.mode === 'select') {
@@ -394,14 +417,44 @@
             updateModeButtons();
         }
 
+        // 音标缓存
+        let phoneticCache = {};
+
+        // 获取音标（使用Free Dictionary API）
+        async function fetchPhonetic(word) {
+            if (phoneticCache[word]) {
+                return phoneticCache[word];
+            }
+            try {
+                const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
+                const data = await response.json();
+                if (data && data[0] && data[0].phonetics) {
+                    for (const p of data[0].phonetics) {
+                        if (p.text) {
+                            phoneticCache[word] = p.text;
+                            return p.text;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.log('获取音标失败');
+            }
+            return '';
+        }
+
+        // 高质量TTS（使用Google Translate）
         function speakWord() {
             const word = app.allLists[app.currentListIdx][app.currentWordIdx];
-            if ('speechSynthesis' in window) {
-                const utterance = new SpeechSynthesisUtterance(word.word);
-                utterance.lang = 'en-US';
-                utterance.rate = 0.8;
-                window.speechSynthesis.speak(utterance);
-            }
+            const audio = new Audio();
+            audio.src = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(word.word)}&tl=en&client=twob`;
+            audio.play().catch(e => {
+                // 降级到浏览器原生TTS
+                if ('speechSynthesis' in window) {
+                    const utterance = new SpeechSynthesisUtterance(word.word);
+                    utterance.lang = 'en-US';
+                    window.speechSynthesis.speak(utterance);
+                }
+            });
         }
 
         function updateModeButtons() {
