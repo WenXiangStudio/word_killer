@@ -472,8 +472,15 @@
         function validateAnswer(userInput, correctMeaning) {
             if (!userInput) return false;
 
-            const answers = correctMeaning.split(/[，,、;；]/).map(a => a.trim()).filter(a => a);
-            const inputs = userInput.split(/[，,、;；]/).map(a => a.trim()).filter(a => a);
+            // 清理答案：去除 n. v. adj. adv. 等前缀
+            const cleanAnswer = (str) => str.replace(/^[nva]\.(\s*)/, '').trim();
+
+            const answers = correctMeaning.split(/[，,、;；]/)
+                .map(a => cleanAnswer(a))
+                .filter(a => a);
+            const inputs = userInput.split(/[，,、;；]/)
+                .map(a => a.trim())
+                .filter(a => a);
 
             if (inputs.length === 0) return false;
 
