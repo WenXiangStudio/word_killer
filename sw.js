@@ -1,15 +1,58 @@
-const CACHE_NAME = 'wordkiller-v1';
-const urlsToCache = ['/', '/index.html'];
+const CACHE_NAME = 'wordkiller-v2';
+const APP_SHELL = [
+  new URL('./', self.location).toString(),
+  new URL('index.html', self.location).toString(),
+  new URL('word_books.json', self.location).toString(),
+  new URL('phonetic_db.js', self.location).toString(),
+  new URL('manifest.json', self.location).toString(),
+  new URL('icon-192.png', self.location).toString(),
+  new URL('icon-512.png', self.location).toString()
+];
 
-self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache)));
+self.addEventListener('install', event => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL))
+  );
   self.skipWaiting();
 });
 
-self.addEventListener('fetch', e => {
-  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys().then(names =>
+      Promise.all(names.filter(name => name !== CACHE_NAME).map(name => caches.delete(name)))
+    )
+  );
+  self.clients.claim();
 });
 
-self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(names => Promise.all(names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n)))));
+self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') return;
+
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+
+  event.respondWith(
+    caches.match(event.request, {ignoreSearch: true}).then(cachedResponse => {
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+
+      return fetch(event.request)
+        .then(networkResponse => {
+          if (!networkResponse || !networkResponse.ok) {
+            return networkResponse;
+          }
+
+          const responseClone = networkResponse.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, responseClone));
+          return networkResponse;
+        })
+        .catch(() => {
+          if (event.request.mode === 'navigate') {
+            return caches.match(APP_SHELL[1]);
+          }
+          return caches.match(event.request, {ignoreSearch: true});
+        });
+    })
+  );
 });

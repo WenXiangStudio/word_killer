@@ -1,7 +1,8 @@
 {
   "name": "背单词",
   "short_name": "背单词",
-  "start_url": "/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#f5f5f5",
   "theme_color": "#4A90D9",

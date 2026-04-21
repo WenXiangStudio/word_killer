@@ -8,6 +8,7 @@
     <meta name="theme-color" content="#4A90D9">
     <title>背单词</title>
     <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-192.png">
     <script src="phonetic_db.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -81,9 +82,10 @@
                 </div>
 
                 <div class="card">
-                    <label>📤 或导入自定义词书（TXT文件）</label>
-                    <input type="file" id="file-input" accept=".txt,.xlsx,.xls" style="display:none">
+                    <label>📤 或导入自定义词书（TXT / CSV / TSV / MD / JSON）</label>
+                    <input type="file" id="file-input" accept=".txt,.csv,.tsv,.md,.list,.json" style="display:none">
                     <button class="btn btn-secondary" onclick="document.getElementById('file-input').click()">选择文件</button>
+                    <div style="text-align:center;color:#999;font-size:12px;margin-top:8px;">支持：单词[TAB]释义、单词,释义、单词 | 释义、单词 /音标/ 释义、JSON 数组等</div>
                     <div id="file-info" class="file-info"></div>
                 </div>
 
@@ -174,6 +176,380 @@
         };
 
         let currentBookKey = 'cet4';
+        const WORD_APP_STATE_KEY = 'wordAppState';
+        const BOOK_NAMES = {cet4: '四级词汇', cet6: '六级词汇', kaoyan: '考研词汇'};
+        function updateBookButtons(activeBookKey) {
+            ['cet4', 'cet6', 'kaoyan'].forEach(key => {
+                const btn = document.getElementById('btn-' + key);
+                if (key === activeBookKey) {
+                    btn.className = 'btn btn-primary';
+                } else {
+                    btn.className = 'btn btn-secondary';
+                }
+                btn.style.flex = '1';
+            });
+        }
+
+        function setCustomWords(words, label = '') {
+            currentBookKey = null;
+            app.words = words;
+            updateBookButtons(null);
+            document.getElementById('book-info').textContent = `已导入自定义词书（${app.words.length}词）`;
+            document.getElementById('file-info').textContent = label || `已加载 ${app.words.length} 个单词`;
+            updateListCount();
+        }
+
+        function persistAppState() {
+            if (!app.words.length) return;
+            localStorage.setItem(WORD_APP_STATE_KEY, JSON.stringify({
+                words: app.words,
+                wordsPerList: app.wordsPerList,
+                currentBook: currentBookKey,
+                currentListIdx: app.currentListIdx,
+                currentWordIdx: app.currentWordIdx,
+                score: app.score,
+                wrongWords: app.wrongWords,
+                mode: app.mode
+            }));
+        }
+
+        function clearAppState() {
+            localStorage.removeItem(WORD_APP_STATE_KEY);
+        }
+
+        function cleanImportedField(value) {
+            return String(value || '')
+                .replace(/^\uFEFF/, '')
+                .trim()
+                .replace(/^["'`]+|["'`]+$/g, '')
+                .trim();
+        }
+
+        function normalizePhonetic(phonetic) {
+            const value = cleanImportedField(phonetic);
+            if (!value) return '';
+            if (
+                (value.startsWith('/') && value.endsWith('/')) ||
+                (value.startsWith('[') && value.endsWith(']'))
+            ) {
+                return value;
+            }
+            return `/${value.replace(/^\/+|\/+$/g, '')}/`;
+        }
+
+        function looksLikePhonetic(value) {
+            const text = cleanImportedField(value);
+            if (!text) return false;
+            return (
+                /^\/[^/]+\/$/.test(text) ||
+                /^\[[^\]]+\]$/.test(text) ||
+                /[ˈˌəɪʊɛæɑɔθðŋʃʒʧʤ]/.test(text)
+            );
+        }
+
+        function looksLikeMeaning(value) {
+            const text = cleanImportedField(value);
+            if (!text) return false;
+            return (
+                /[\u4e00-\u9fff]/.test(text) ||
+                /\b(?:n|v|vt|vi|adj|adv|prep|pron|num|int|conj|art|aux|phr)\./i.test(text)
+            );
+        }
+
+        function isHeaderRow(fields) {
+            const headerTokens = new Set([
+                'word', 'words', 'term', 'name', 'english', 'en',
+                'meaning', 'meanings', 'definition', 'definitions', 'translation',
+                'phonetic', 'pronunciation', 'sound',
+                '单词', '英文', '释义', '含义', '中文', '翻译', '音标'
+            ]);
+            return fields.every(field => headerTokens.has(field.toLowerCase()));
+        }
+
+        function createImportedWord(word, meaning, phonetic = '') {
+            const normalizedWord = cleanImportedField(word);
+            const normalizedMeaning = cleanImportedField(meaning);
+            const normalizedPhonetic = normalizePhonetic(phonetic);
+            if (!normalizedWord || !normalizedMeaning) return null;
+            return normalizedPhonetic
+                ? {word: normalizedWord, phonetic: normalizedPhonetic, meaning: normalizedMeaning}
+                : {word: normalizedWord, meaning: normalizedMeaning};
+        }
+
+        function parseDelimitedFields(line, delimiter) {
+            const fields = [];
+            let current = '';
+            let inQuotes = false;
+
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                if (char === '"') {
+                    if (inQuotes && line[i + 1] === '"') {
+                        current += '"';
+                        i++;
+                    } else {
+                        inQuotes = !inQuotes;
+                    }
+                    continue;
+                }
+                if (char === delimiter && !inQuotes) {
+                    fields.push(current);
+                    current = '';
+                    continue;
+                }
+                current += char;
+            }
+
+            fields.push(current);
+            return fields.map(cleanImportedField);
+        }
+
+        function createWordFromFields(fields) {
+            const cleanedFields = fields.map(cleanImportedField).filter(Boolean);
+            if (cleanedFields.length === 0) return {entry: null, ignored: true};
+            if (isHeaderRow(cleanedFields)) return {entry: null, ignored: true};
+            if (cleanedFields.length < 2) return {entry: null, ignored: false};
+
+            const [word, second, ...rest] = cleanedFields;
+            if (rest.length === 0) {
+                return {entry: createImportedWord(word, second), ignored: false};
+            }
+
+            const third = rest[0];
+            if (looksLikePhonetic(second)) {
+                return {
+                    entry: createImportedWord(word, rest.join(' '), second),
+                    ignored: false
+                };
+            }
+
+            if (looksLikePhonetic(third)) {
+                return {
+                    entry: createImportedWord(word, second, third),
+                    ignored: false
+                };
+            }
+
+            return {
+                entry: createImportedWord(word, [second, ...rest].join(' ')),
+                ignored: false
+            };
+        }
+
+        function tryParseDelimitedLine(line) {
+            if (/^\|?(?:\s*[-:]+\s*\|)+\s*[-:]+\s*\|?$/.test(line)) {
+                return {entry: null, ignored: true};
+            }
+
+            if (line.includes('\t')) {
+                return createWordFromFields(parseDelimitedFields(line, '\t'));
+            }
+
+            if (line.startsWith('|') || /\s\|\s/.test(line)) {
+                const fields = line
+                    .split('|')
+                    .map(cleanImportedField)
+                    .filter(Boolean);
+                return createWordFromFields(fields);
+            }
+
+            if (line.includes(',')) {
+                return createWordFromFields(parseDelimitedFields(line, ','));
+            }
+
+            if (line.includes('，')) {
+                return createWordFromFields(line.split('，'));
+            }
+
+            if (/[：:]/.test(line)) {
+                const match = line.match(/^(.+?)\s*[：:]\s*(.+)$/);
+                if (match) {
+                    return {
+                        entry: createImportedWord(match[1], match[2]),
+                        ignored: false
+                    };
+                }
+            }
+
+            if (/\s[-–—]\s/.test(line)) {
+                const match = line.match(/^(.+?)\s+[-–—]\s+(.+)$/);
+                if (match) {
+                    return {
+                        entry: createImportedWord(match[1], match[2]),
+                        ignored: false
+                    };
+                }
+            }
+
+            return null;
+        }
+
+        function parseLooseWordLine(line) {
+            const phoneticMatch = line.match(/^(.+?)\s+(\/[^/]+\/|\[[^\]]+\])\s+(.+)$/);
+            if (phoneticMatch) {
+                return createImportedWord(phoneticMatch[1], phoneticMatch[3], phoneticMatch[2]);
+            }
+
+            const posMatch = line.match(/^([A-Za-z][A-Za-z0-9'().\-/ ]{0,80})\s+((?:n|v|vt|vi|adj|adv|prep|pron|num|int|conj|art|aux|phr)\..+)$/i);
+            if (posMatch) {
+                return createImportedWord(posMatch[1], posMatch[2]);
+            }
+
+            const chineseMeaningMatch = line.match(/^([A-Za-z][A-Za-z0-9'().\-/ ]{0,80})\s+(.+)$/);
+            if (chineseMeaningMatch && looksLikeMeaning(chineseMeaningMatch[2])) {
+                return createImportedWord(chineseMeaningMatch[1], chineseMeaningMatch[2]);
+            }
+
+            return null;
+        }
+
+        function parseTextWordLine(rawLine) {
+            let line = String(rawLine || '').replace(/^\uFEFF/, '').trim();
+            if (!line) return {entry: null, ignored: true};
+
+            if (/^(#|\/\/|;)/.test(line)) {
+                return {entry: null, ignored: true};
+            }
+
+            line = line.replace(/^\d+\s*[.)、]\s*/, '').trim();
+            line = line.replace(/^[*•·]\s+/, '').trim();
+            if (!line) return {entry: null, ignored: true};
+
+            const delimitedResult = tryParseDelimitedLine(line);
+            if (delimitedResult) return delimitedResult;
+
+            return {
+                entry: parseLooseWordLine(line),
+                ignored: false
+            };
+        }
+
+        function dedupeImportedWords(words) {
+            const mergedWords = [];
+            const seen = new Map();
+            let duplicateCount = 0;
+
+            words.forEach(word => {
+                const key = `${word.word.toLowerCase()}__${word.meaning}`;
+                if (seen.has(key)) {
+                    duplicateCount++;
+                    const existing = mergedWords[seen.get(key)];
+                    if (!existing.phonetic && word.phonetic) {
+                        existing.phonetic = word.phonetic;
+                    }
+                    return;
+                }
+                seen.set(key, mergedWords.length);
+                mergedWords.push({...word});
+            });
+
+            return {words: mergedWords, duplicateCount};
+        }
+
+        function parseTextWordBook(text) {
+            const words = [];
+            const skippedLines = [];
+            let skippedCount = 0;
+
+            text.split(/\r?\n/).forEach(rawLine => {
+                const result = parseTextWordLine(rawLine);
+                if (result.entry) {
+                    words.push(result.entry);
+                    return;
+                }
+                if (!result.ignored) {
+                    skippedCount++;
+                    if (skippedLines.length < 5) {
+                        skippedLines.push(rawLine.trim());
+                    }
+                }
+            });
+
+            const deduped = dedupeImportedWords(words);
+            return {
+                words: deduped.words,
+                skippedCount,
+                skippedLines,
+                duplicateCount: deduped.duplicateCount
+            };
+        }
+
+        function parseJsonWordBook(text) {
+            const words = [];
+            const skippedLines = [];
+            let skippedCount = 0;
+            const parsed = JSON.parse(text);
+
+            let source = parsed;
+            if (!Array.isArray(source) && Array.isArray(parsed.words)) source = parsed.words;
+            if (!Array.isArray(source) && Array.isArray(parsed.data)) source = parsed.data;
+
+            if (Array.isArray(source)) {
+                source.forEach(item => {
+                    let entry = null;
+                    if (typeof item === 'string') {
+                        entry = parseTextWordLine(item).entry;
+                    } else if (item && typeof item === 'object') {
+                        const meaningValue = Array.isArray(item.meanings)
+                            ? item.meanings.join('；')
+                            : item.meaning || item.definition || item.translation || item.cn || item.zh;
+                        entry = createImportedWord(
+                            item.word || item.name || item.term || item.english || item.en,
+                            meaningValue,
+                            item.phonetic || item.usphone || item.ukphone || item.pronunciation
+                        );
+                    }
+
+                    if (entry) {
+                        words.push(entry);
+                    } else {
+                        skippedCount++;
+                        if (skippedLines.length < 5) {
+                            skippedLines.push(JSON.stringify(item));
+                        }
+                    }
+                });
+            } else if (source && typeof source === 'object') {
+                Object.entries(source).forEach(([word, value]) => {
+                    let entry = null;
+                    if (typeof value === 'string') {
+                        entry = createImportedWord(word, value);
+                    } else if (value && typeof value === 'object') {
+                        entry = createImportedWord(
+                            word,
+                            value.meaning || value.definition || value.translation || value.cn || value.zh,
+                            value.phonetic || value.usphone || value.ukphone || value.pronunciation
+                        );
+                    }
+
+                    if (entry) {
+                        words.push(entry);
+                    } else {
+                        skippedCount++;
+                        if (skippedLines.length < 5) {
+                            skippedLines.push(`${word}: ${JSON.stringify(value)}`);
+                        }
+                    }
+                });
+            }
+
+            const deduped = dedupeImportedWords(words);
+            return {
+                words: deduped.words,
+                skippedCount,
+                skippedLines,
+                duplicateCount: deduped.duplicateCount
+            };
+        }
+
+        async function parseImportedFile(file) {
+            const ext = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : '';
+            const text = await file.text();
+            if (ext === 'json') {
+                return parseJsonWordBook(text);
+            }
+            return parseTextWordBook(text);
+        }
 
         async function loadWordBooks() {
             const cached = localStorage.getItem('wordBooksCache');
@@ -207,9 +583,9 @@
         }
 
         function updateListCount() {
+            app.wordsPerList = parseInt(document.getElementById('words-per-list').value) || 50;
             const count = Math.ceil(app.words.length / app.wordsPerList) || 0;
             document.getElementById('list-count').textContent = `将分为 ${count} 个List`;
-            app.wordsPerList = parseInt(document.getElementById('words-per-list').value) || 50;
         }
 
         document.getElementById('words-per-list').addEventListener('input', updateListCount);
@@ -217,42 +593,44 @@
         document.getElementById('file-input').addEventListener('change', async function(e) {
             const file = e.target.files[0];
             if (!file) return;
-            const ext = file.name.split('.').pop().toLowerCase();
-            app.words = [];
-            if (ext === 'txt') {
-                const text = await file.text();
-                text.split('\n').forEach(line => {
-                    line = line.trim();
-                    if (line) {
-                        const parts = line.split(/[\t,]/);
-                        if (parts.length >= 2) {
-                            app.words.push({word: parts[0].trim(), meaning: parts[1].trim()});
-                        }
-                    }
-                });
+            try {
+                const parsed = await parseImportedFile(file);
+                if (parsed.words.length === 0) {
+                    const details = parsed.skippedLines.length
+                        ? `\n示例未识别行：\n${parsed.skippedLines.join('\n')}`
+                        : '';
+                    alert(`没有识别到可导入的单词。${details}`);
+                    return;
+                }
+
+                const summaryParts = [
+                    `已加载 ${parsed.words.length} 个单词：${file.name}`
+                ];
+                if (parsed.duplicateCount > 0) {
+                    summaryParts.push(`去重 ${parsed.duplicateCount} 条`);
+                }
+                if (parsed.skippedCount > 0) {
+                    summaryParts.push(`跳过 ${parsed.skippedCount} 行`);
+                }
+
+                setCustomWords(parsed.words, summaryParts.join('，'));
+
+                if (parsed.skippedCount > 0) {
+                    console.log('导入时跳过的示例行:', parsed.skippedLines);
+                }
+            } catch (error) {
+                console.error('导入词书失败:', error);
+                alert(`导入失败：${error.message || '文件格式无法识别'}`);
             }
-            document.getElementById('file-info').textContent = `已加载 ${app.words.length} 个单词`;
-            updateListCount();
+            e.target.value = '';
         });
 
         function selectBook(bookKey) {
             currentBookKey = bookKey;
             if (!app.wordBooks || !app.wordBooks[bookKey]) return;
             app.words = [...app.wordBooks[bookKey]];
-            
-            ['cet4', 'cet6', 'kaoyan'].forEach(key => {
-                const btn = document.getElementById('btn-' + key);
-                if (key === bookKey) {
-                    btn.className = 'btn btn-primary';
-                    btn.style.flex = '1';
-                } else {
-                    btn.className = 'btn btn-secondary';
-                    btn.style.flex = '1';
-                }
-            });
-            
-            const bookNames = {cet4: '四级词汇', cet6: '六级词汇', kaoyan: '考研词汇'};
-            document.getElementById('book-info').textContent = `已选择：${bookNames[bookKey]}（${app.words.length}词）`;
+            updateBookButtons(bookKey);
+            document.getElementById('book-info').textContent = `已选择：${BOOK_NAMES[bookKey]}（${app.words.length}词）`;
             document.getElementById('file-info').textContent = '';
             updateListCount();
         }
@@ -331,31 +709,45 @@
             app.currentWordIdx = 0;
             app.score = 0;
             app.wrongWords = [];
-            localStorage.setItem('wordAppState', JSON.stringify({
-                words: app.words,
-                wordsPerList: app.wordsPerList,
-                currentBook: currentBookKey,
-                currentListIdx: app.currentListIdx
-            }));
+            persistAppState();
             showLearnPage();
         }
 
         function continueLearning() {
-            const saved = localStorage.getItem('wordAppState');
+            const saved = localStorage.getItem(WORD_APP_STATE_KEY);
             if (saved) {
-                const state = JSON.parse(saved);
-                app.words = state.words;
-                app.wordsPerList = state.wordsPerList || 50;
-                currentBookKey = state.currentBook || 'cet4';
-                app.currentListIdx = state.currentListIdx || 0;
-                if (app.wordBooks && app.wordBooks[currentBookKey]) {
-                    selectBook(currentBookKey);
+                try {
+                    const state = JSON.parse(saved);
+                    app.wordsPerList = state.wordsPerList || 50;
+                    document.getElementById('words-per-list').value = app.wordsPerList;
+                    app.words = Array.isArray(state.words) ? state.words : [];
+                    currentBookKey = state.currentBook || null;
+
+                    if (!app.words.length) {
+                        throw new Error('学习记录缺少词书数据');
+                    }
+
+                    if (currentBookKey && BOOK_NAMES[currentBookKey]) {
+                        updateBookButtons(currentBookKey);
+                        document.getElementById('book-info').textContent = `继续学习：${BOOK_NAMES[currentBookKey]}（${app.words.length}词）`;
+                        document.getElementById('file-info').textContent = '';
+                        updateListCount();
+                    } else {
+                        setCustomWords(app.words, `继续学习：自定义词书（${app.words.length}词）`);
+                    }
+
+                    splitToLists();
+                    app.currentListIdx = state.currentListIdx || 0;
+                    app.currentWordIdx = state.currentWordIdx || 0;
+                    app.score = state.score || 0;
+                    app.wrongWords = Array.isArray(state.wrongWords) ? state.wrongWords : [];
+                    app.mode = state.mode === 'input' ? 'input' : 'select';
+                    showLearnPage();
+                } catch (error) {
+                    console.error('恢复学习记录失败:', error);
+                    clearAppState();
+                    alert('学习记录已损坏，已清除旧记录');
                 }
-                splitToLists();
-                app.currentWordIdx = 0;
-                app.score = 0;
-                app.wrongWords = [];
-                showLearnPage();
             } else {
                 alert('没有可继续的学习记录');
             }
@@ -402,6 +794,9 @@
             let phonetic = word.phonetic || '';
             if (!phonetic) {
                 phonetic = await fetchPhonetic(word.word);
+                if (phonetic) {
+                    word.phonetic = phonetic;
+                }
             }
             document.getElementById('word-phonetic').textContent = phonetic;
             
@@ -416,6 +811,7 @@
                 document.getElementById('input-area').classList.remove('hidden');
             }
             updateModeButtons();
+            persistAppState();
         }
 
         // 音标缓存
@@ -512,6 +908,7 @@
 
         function switchMode(mode) {
             app.mode = mode;
+            persistAppState();
             showWord();
         }
 
@@ -544,10 +941,14 @@
             if (choice === word.meaning) {
                 app.score++;
                 app.currentWordIdx++;
+                persistAppState();
                 feedback.innerHTML = '<p style="color:#5cb85c;font-size:18px;">✓ 正确！</p>';
                 setTimeout(showWord, 800);
             } else {
-                app.wrongWords.push(word);
+                if (!app.wrongWords.some(item => item.word === word.word && item.meaning === word.meaning)) {
+                    app.wrongWords.push(word);
+                }
+                persistAppState();
                 feedback.innerHTML = `<p style="color:#d9534f;font-size:16px;">✗ 错误！正确意思：${word.meaning}</p><button class="btn btn-secondary" onclick="nextWord()">下一个</button>`;
             }
         }
@@ -562,10 +963,14 @@
             if (isCorrect) {
                 app.score++;
                 app.currentWordIdx++;
+                persistAppState();
                 feedback.innerHTML = '<p style="color:#5cb85c;font-size:18px;">✓ 正确！</p>';
                 setTimeout(showWord, 800);
             } else {
-                app.wrongWords.push(word);
+                if (!app.wrongWords.some(item => item.word === word.word && item.meaning === word.meaning)) {
+                    app.wrongWords.push(word);
+                }
+                persistAppState();
                 feedback.innerHTML = `<p style="color:#d9534f;font-size:16px;">✗ 错误！正确意思：${word.meaning}</p><button class="btn btn-secondary" onclick="nextWord()">下一个</button>`;
             }
         }
@@ -594,10 +999,12 @@
 
         function nextWord() {
             app.currentWordIdx++;
+            persistAppState();
             showWord();
         }
 
         function showResult() {
+            clearAppState();
             document.getElementById('learn-page').classList.add('hidden');
             document.getElementById('result-page').classList.remove('hidden');
             const total = app.score + app.wrongWords.length;
@@ -625,6 +1032,7 @@
             app.currentListIdx = 0;
             app.currentWordIdx = 0;
             app.score = 0;
+            persistAppState();
             showLearnPage();
         }
 
