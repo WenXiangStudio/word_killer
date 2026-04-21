@@ -420,11 +420,29 @@
         // 音标缓存
         let phoneticCache = {};
 
-        // 获取音标（使用Free Dictionary API）
+        // 获取音标（使用有道词典API）
         async function fetchPhonetic(word) {
             if (phoneticCache[word]) {
                 return phoneticCache[word];
             }
+            
+            // 尝试有道词典API
+            try {
+                const response = await fetch(`https://dict.youdao.com/jsonapi?q=${encodeURIComponent(word)}&le=eng&dicts={"count":1,"dicts":[["ec"]]}`);
+                const data = await response.json();
+                if (data && data.ec && data.ec.word && data.ec.word[0]) {
+                    const w = data.ec.word[0];
+                    const usphone = w.usphone || w.phone;
+                    if (usphone) {
+                        phoneticCache[word] = `/${usphone}/`;
+                        return `/${usphone}/`;
+                    }
+                }
+            } catch (e) {
+                console.log('有道API失败，尝试备用API');
+            }
+            
+            // 备用：Free Dictionary API
             try {
                 const response = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${word}`);
                 const data = await response.json();
@@ -437,8 +455,9 @@
                     }
                 }
             } catch (e) {
-                console.log('获取音标失败');
+                console.log('备用API也失败');
             }
+            
             return '';
         }
 
