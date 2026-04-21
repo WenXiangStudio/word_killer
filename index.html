@@ -421,7 +421,7 @@
         // 音标缓存
         let phoneticCache = {};
 
-        // 获取音标（优先本地数据库，其次API）
+        // 获取音标（优先本地数据库，其次有道API，最后Free Dictionary）
         async function fetchPhonetic(word) {
             if (phoneticCache[word]) {
                 return phoneticCache[word];
@@ -433,7 +433,38 @@
                 return PHONETIC_DB[word];
             }
             
-            // 2. 尝试 Free Dictionary API
+            // 2. 尝试有道词典API（使用CORS代理）
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 3000);
+                
+                // 使用 allorigins.win 作为CORS代理
+                const proxyUrl = 'https://api.allorigins.win/get?url=';
+                const youdaoUrl = encodeURIComponent(`https://dict.youdao.com/jsonapi?q=${word}&le=eng&dicts={"count":1,"dicts":[["ec"]]}`);
+                
+                const response = await fetch(proxyUrl + youdaoUrl, {
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                
+                const result = await response.json();
+                if (result.contents) {
+                    const data = JSON.parse(result.contents);
+                    if (data && data.ec && data.ec.word && data.ec.word[0]) {
+                        const w = data.ec.word[0];
+                        const usphone = w.usphone || w.phone;
+                        if (usphone) {
+                            const phonetic = `/${usphone}/`;
+                            phoneticCache[word] = phonetic;
+                            return phonetic;
+                        }
+                    }
+                }
+            } catch (e) {
+                console.log('有道API失败:', word, e.message);
+            }
+            
+            // 3. 尝试 Free Dictionary API
             try {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 2000);
@@ -453,7 +484,7 @@
                     }
                 }
             } catch (e) {
-                console.log('API获取音标失败:', word);
+                console.log('Free Dictionary API失败:', word);
             }
             
             return '';
