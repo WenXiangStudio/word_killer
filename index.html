@@ -69,6 +69,19 @@
         .resume-info { text-align: center; color: #666; font-size: 13px; margin: 6px 0 14px; min-height: 18px; }
         .tip-list { color: #666; font-size: 13px; line-height: 1.7; }
         .tip-list p + p { margin-top: 6px; }
+        .version-badge {
+            position: fixed;
+            right: 12px;
+            bottom: 12px;
+            padding: 8px 10px;
+            border-radius: 999px;
+            background: rgba(31, 47, 70, 0.88);
+            color: #fff;
+            font-size: 12px;
+            letter-spacing: 0.2px;
+            box-shadow: 0 8px 18px rgba(0,0,0,0.14);
+            z-index: 999;
+        }
     </style>
 </head>
 <body>
@@ -192,6 +205,7 @@
             <button class="btn btn-orange" onclick="reviewWrongWords()">复习错词</button>
         </div>
     </div>
+    <div id="version-badge" class="version-badge">版本 --</div>
 
     <script>
         let app = {
@@ -203,12 +217,14 @@
             mode: 'select',
             score: 0,
             wrongWords: [],
+            choiceLocked: false,
             showAnswer: false,
             wordBooks: null,
             selectedListIdx: 0
         };
 
         let currentBookKey = 'cet4';
+        const APP_VERSION = 'v2026.04.23-1';
         const WORD_APP_STATE_KEY = 'wordAppState';
         const WORD_BOOKS_CACHE_KEY = 'wordBooksCache:v3';
         const LEGACY_WORD_BOOKS_CACHE_KEYS = ['wordBooksCache', 'wordBooksCache:v2'];
@@ -371,6 +387,13 @@
             if (player) {
                 player.removeAttribute('src');
                 player.load();
+            }
+        }
+
+        function updateVersionBadge() {
+            const badge = document.getElementById('version-badge');
+            if (badge) {
+                badge.textContent = `版本 ${APP_VERSION}`;
             }
         }
 
@@ -952,6 +975,7 @@
             app.currentWordIdx = 0;
             app.score = 0;
             app.wrongWords = [];
+            app.choiceLocked = false;
             persistAppState();
             showLearnPage();
         }
@@ -986,6 +1010,7 @@
                     app.score = state.score || 0;
                     app.wrongWords = Array.isArray(state.wrongWords) ? state.wrongWords : [];
                     app.mode = state.mode === 'input' ? 'input' : 'select';
+                    app.choiceLocked = false;
                     showLearnPage();
                 } catch (error) {
                     console.error('恢复学习记录失败:', error);
@@ -1039,6 +1064,7 @@
             const phonetic = hydrateWordPhonetic(word);
             document.getElementById('word-phonetic').textContent = phonetic || '...';
             
+            app.choiceLocked = false;
             document.getElementById('feedback-area').innerHTML = '';
             document.getElementById('answer-input').value = '';
             if (app.mode === 'select') {
@@ -1197,6 +1223,7 @@
                 const btn = document.createElement('button');
                 btn.className = 'btn choice-btn';
                 btn.textContent = choice;
+                btn.disabled = app.choiceLocked;
                 btn.onclick = () => checkChoice(choice, word);
                 container.appendChild(btn);
             });
@@ -1214,6 +1241,7 @@
         }
 
         function checkChoice(choice, word) {
+            if (app.choiceLocked) return;
             const feedback = document.getElementById('feedback-area');
             if (choice === word.meaning) {
                 app.score++;
@@ -1222,10 +1250,18 @@
                 feedback.innerHTML = '<p style="color:#5cb85c;font-size:18px;">✓ 正确！</p>';
                 setTimeout(showWord, 800);
             } else {
+                app.choiceLocked = true;
                 if (!app.wrongWords.some(item => item.word === word.word && item.meaning === word.meaning)) {
                     app.wrongWords.push(word);
                 }
                 persistAppState();
+                document.querySelectorAll('#choices-area .choice-btn').forEach(btn => {
+                    btn.disabled = true;
+                    if (btn.textContent === word.meaning) {
+                        btn.style.borderColor = '#5cb85c';
+                        btn.style.background = '#f1fbf1';
+                    }
+                });
                 feedback.innerHTML = `<p style="color:#d9534f;font-size:16px;">✗ 错误！正确意思：${word.meaning}</p><button class="btn btn-secondary" onclick="nextWord()">下一个</button>`;
             }
         }
@@ -1275,6 +1311,7 @@
         }
 
         function nextWord() {
+            app.choiceLocked = false;
             app.currentWordIdx++;
             persistAppState();
             showWord();
@@ -1309,6 +1346,7 @@
             app.currentListIdx = 0;
             app.currentWordIdx = 0;
             app.score = 0;
+            app.choiceLocked = false;
             persistAppState();
             showLearnPage();
         }
@@ -1320,6 +1358,7 @@
         });
 
         window.addEventListener('load', () => {
+            updateVersionBadge();
             if ('speechSynthesis' in window) {
                 refreshEnglishVoices();
                 window.speechSynthesis.onvoiceschanged = refreshEnglishVoices;
