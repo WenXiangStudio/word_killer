@@ -208,6 +208,7 @@
         const BOOK_NAMES = {cet4: '四级词汇', cet6: '六级词汇', kaoyan: '考研词汇'};
         let currentWordRenderToken = 0;
         let phoneticCache = {};
+        let englishVoices = [];
 
         function getWordKey(word) {
             return String(word || '').trim().toLowerCase();
@@ -259,6 +260,64 @@
             }
 
             return '';
+        }
+
+        function refreshEnglishVoices() {
+            if (!('speechSynthesis' in window)) {
+                englishVoices = [];
+                return englishVoices;
+            }
+
+            const voices = window.speechSynthesis.getVoices();
+            englishVoices = voices
+                .filter(voice => /^en([-_]|$)/i.test(voice.lang))
+                .sort((a, b) => {
+                    const score = voice => {
+                        let result = 0;
+                        if (voice.default) result += 100;
+                        if (/en-us/i.test(voice.lang)) result += 20;
+                        if (/samantha|alex|daniel|serena|victoria|ava|allison/i.test(voice.name)) result += 10;
+                        if (/compact/i.test(voice.name)) result -= 5;
+                        return result;
+                    };
+                    return score(b) - score(a);
+                });
+            return englishVoices;
+        }
+
+        function getPreferredEnglishVoice() {
+            if (!englishVoices.length) {
+                refreshEnglishVoices();
+            }
+            return englishVoices[0] || null;
+        }
+
+        function speakWithBrowserTTS(text) {
+            if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
+                return false;
+            }
+
+            const synth = window.speechSynthesis;
+            const utterance = new SpeechSynthesisUtterance(text);
+            const voice = getPreferredEnglishVoice();
+
+            utterance.lang = voice?.lang || 'en-US';
+            if (voice) {
+                utterance.voice = voice;
+            }
+            utterance.rate = 0.95;
+            utterance.pitch = 1;
+            utterance.volume = 1;
+
+            synth.cancel();
+            window.setTimeout(() => {
+                synth.speak(utterance);
+                if (synth.paused) {
+                    synth.resume();
+                }
+            }, 0);
+
+            return true;
         }
 
         function hydrateWordListPhonetics(words) {
@@ -1014,19 +1073,29 @@
             return '';
         }
 
-        // 高质量TTS（使用Google Translate）
+        // 单词发音：优先浏览器原生语音，远程音频作为兜底
         function speakWord() {
-            const word = app.allLists[app.currentListIdx][app.currentWordIdx];
+            const currentList = app.allLists[app.currentListIdx];
+            if (!currentList || !currentList[app.currentWordIdx]) {
+                return;
+            }
+            const word = currentList[app.currentWordIdx];
+            if (speakWithBrowserTTS(word.word)) {
+                return;
+            }
+
             const audio = new Audio();
+            audio.preload = 'none';
             audio.src = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(word.word)}&tl=en&client=twob`;
-            audio.play().catch(e => {
-                // 降级到浏览器原生TTS
-                if ('speechSynthesis' in window) {
-                    const utterance = new SpeechSynthesisUtterance(word.word);
-                    utterance.lang = 'en-US';
-                    window.speechSynthesis.speak(utterance);
+
+            const fallback = () => {
+                if (!speakWithBrowserTTS(word.word)) {
+                    alert('当前设备暂不支持语音播放');
                 }
-            });
+            };
+
+            audio.onerror = fallback;
+            audio.play().catch(fallback);
         }
 
         function updateModeButtons() {
@@ -1170,7 +1239,13 @@
             }
         });
 
-        window.addEventListener('load', loadWordBooks);
+        window.addEventListener('load', () => {
+            if ('speechSynthesis' in window) {
+                refreshEnglishVoices();
+                window.speechSynthesis.onvoiceschanged = refreshEnglishVoices;
+            }
+            loadWordBooks();
+        });
 
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js');
