@@ -3,8 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="支持四级、六级、考研和自定义词书导入的移动端背单词应用。">
+    <meta name="format-detection" content="telephone=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="背单词">
     <meta name="theme-color" content="#4A90D9">
     <title>背单词</title>
     <link rel="manifest" href="manifest.json">
@@ -16,6 +19,7 @@
         .container { max-width: 500px; margin: 0 auto; padding: 15px; }
         .header { text-align: center; padding: 20px 0; }
         .header h1 { color: #4A90D9; font-size: 24px; }
+        .header p { color: #666; font-size: 14px; margin-top: 8px; }
         .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
         .btn { display: block; width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; margin-bottom: 10px; }
         .btn-primary { background: #4A90D9; color: white; }
@@ -26,6 +30,8 @@
         .btn:disabled { opacity: 0.5; }
         input, select { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; margin-bottom: 10px; }
         label { display: block; margin-bottom: 5px; color: #666; font-size: 14px; }
+        .status-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
+        .status-pill { padding: 6px 10px; border-radius: 999px; background: #e8f1fb; color: #2d69a5; font-size: 12px; }
         .word-display { text-align: center; padding: 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white; margin-bottom: 20px; }
         .word-display h2 { font-size: 32px; margin-bottom: 10px; }
         .word-display .phonetic { font-size: 18px; opacity: 0.9; margin-top: 5px; }
@@ -57,13 +63,24 @@
         .speak-btn { background: #4A90D9; color: white; border: none; border-radius: 50%; width: 40px; height: 40px; font-size: 18px; cursor: pointer; margin-left: 10px; }
         .speak-btn:hover { background: #357abd; }
         .word-header { display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .resume-info { text-align: center; color: #666; font-size: 13px; margin: 6px 0 14px; min-height: 18px; }
+        .tip-list { color: #666; font-size: 13px; line-height: 1.7; }
+        .tip-list p + p { margin-top: 6px; }
     </style>
 </head>
 <body>
     <div class="container">
         <!-- 设置页 -->
         <div id="setup-page">
-            <div class="header"><h1>📚 背单词</h1></div>
+            <div class="header">
+                <h1>📚 背单词</h1>
+                <p>四六级、考研、自定义词书，适合手机直接背</p>
+                <div class="status-row">
+                    <span class="status-pill">PWA 桌面安装</span>
+                    <span class="status-pill">支持离线缓存</span>
+                    <span class="status-pill">支持多格式导入</span>
+                </div>
+            </div>
             
             <div id="loading-area" class="loading">
                 <div class="loading-spinner">⏳</div>
@@ -96,7 +113,16 @@
                 </div>
 
                 <button class="btn btn-success" onclick="showListSelection()">🚀 开始学习</button>
-                <button class="btn btn-orange" onclick="continueLearning()">📌 继续上次</button>
+                <button class="btn btn-orange" onclick="continueLearning()" id="continue-btn" disabled>📌 继续上次</button>
+                <div id="resume-info" class="resume-info">暂无可继续的学习记录</div>
+            </div>
+
+            <div class="card">
+                <label>📱 iPhone 使用提示</label>
+                <div class="tip-list">
+                    <p>在 Safari 打开后，点“分享” → “添加到主屏幕”，可像 App 一样使用。</p>
+                    <p>首次联网加载词书后，后续可直接从桌面继续打开。</p>
+                </div>
             </div>
         </div>
 
@@ -178,6 +204,7 @@
         let currentBookKey = 'cet4';
         const WORD_APP_STATE_KEY = 'wordAppState';
         const BOOK_NAMES = {cet4: '四级词汇', cet6: '六级词汇', kaoyan: '考研词汇'};
+
         function updateBookButtons(activeBookKey) {
             ['cet4', 'cet6', 'kaoyan'].forEach(key => {
                 const btn = document.getElementById('btn-' + key);
@@ -209,12 +236,45 @@
                 currentWordIdx: app.currentWordIdx,
                 score: app.score,
                 wrongWords: app.wrongWords,
-                mode: app.mode
+                mode: app.mode,
+                updatedAt: Date.now()
             }));
+            updateResumeButton();
         }
 
         function clearAppState() {
             localStorage.removeItem(WORD_APP_STATE_KEY);
+            updateResumeButton();
+        }
+
+        function updateResumeButton() {
+            const continueBtn = document.getElementById('continue-btn');
+            const resumeInfo = document.getElementById('resume-info');
+            const saved = localStorage.getItem(WORD_APP_STATE_KEY);
+
+            if (!saved) {
+                continueBtn.disabled = true;
+                resumeInfo.textContent = '暂无可继续的学习记录';
+                return;
+            }
+
+            try {
+                const state = JSON.parse(saved);
+                if (!Array.isArray(state.words) || state.words.length === 0) {
+                    throw new Error('invalid state');
+                }
+
+                const sourceLabel = state.currentBook && BOOK_NAMES[state.currentBook]
+                    ? BOOK_NAMES[state.currentBook]
+                    : '自定义词书';
+                const listNo = (state.currentListIdx || 0) + 1;
+                const wordNo = (state.currentWordIdx || 0) + 1;
+                continueBtn.disabled = false;
+                resumeInfo.textContent = `上次进度：${sourceLabel} · List ${listNo} · 第 ${wordNo} 词`;
+            } catch (error) {
+                continueBtn.disabled = true;
+                resumeInfo.textContent = '学习记录不可用，继续学习功能已停用';
+            }
         }
 
         function cleanImportedField(value) {
@@ -558,6 +618,7 @@
                     app.wordBooks = JSON.parse(cached);
                     console.log('从缓存加载词书');
                     showBookSelection();
+                    updateResumeButton();
                     return;
                 } catch (e) {
                     console.error('缓存解析失败');
@@ -570,6 +631,7 @@
                 localStorage.setItem('wordBooksCache', JSON.stringify(app.wordBooks));
                 console.log('从网络加载词书并缓存');
                 showBookSelection();
+                updateResumeButton();
             } catch (error) {
                 console.error('加载词书失败:', error);
                 document.getElementById('loading-area').innerHTML = '<p style="color:#d9534f;">加载词书失败，请刷新重试</p>';
@@ -676,14 +738,14 @@
             container.innerHTML = '';
             
             // 先显示单词，不带音标
-            list.forEach(word => {
+            list.forEach((word, idx) => {
+                const phoneticId = `ph-${listIdx}-${idx}`;
                 const div = document.createElement('div');
                 div.className = 'preview-word';
-                div.id = `pw-${word.word}`;
                 div.innerHTML = `
                     <div>
                         <div class="pw-en">${word.word}</div>
-                        <div class="pw-phonetic" id="ph-${word.word}">${word.phonetic || '...'}</div>
+                        <div class="pw-phonetic" id="${phoneticId}">${word.phonetic || '...'}</div>
                     </div>
                     <div class="pw-cn">${word.meaning}</div>
                 `;
@@ -691,10 +753,10 @@
             });
             
             // 后台异步加载音标
-            for (const word of list) {
+            for (const [idx, word] of list.entries()) {
                 if (!word.phonetic) {
                     const phonetic = await fetchPhonetic(word.word);
-                    const phEl = document.getElementById(`ph-${word.word}`);
+                    const phEl = document.getElementById(`ph-${listIdx}-${idx}`);
                     if (phEl && phonetic) {
                         phEl.textContent = phonetic;
                     } else if (phEl) {
@@ -979,7 +1041,7 @@
             if (!userInput) return false;
 
             // 清理答案：去除 n. v. adj. adv. 等前缀
-            const cleanAnswer = (str) => str.replace(/^[nva]\.(\s*)/, '').trim();
+            const cleanAnswer = (str) => str.replace(/^(?:n|v|vt|vi|adj|adv|prep|pron|num|int|conj|art|aux|phr)\.(\s*)/i, '').trim();
 
             const answers = correctMeaning.split(/[，,、;；]/)
                 .map(a => cleanAnswer(a))
@@ -1035,6 +1097,12 @@
             persistAppState();
             showLearnPage();
         }
+
+        document.getElementById('answer-input').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && app.mode === 'input') {
+                checkInput();
+            }
+        });
 
         window.addEventListener('load', loadWordBooks);
 
