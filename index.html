@@ -203,6 +203,7 @@
 
         let currentBookKey = 'cet4';
         const WORD_APP_STATE_KEY = 'wordAppState';
+        const WORD_BOOKS_CACHE_KEY = 'wordBooksCache:v2';
         const BOOK_NAMES = {cet4: '四级词汇', cet6: '六级词汇', kaoyan: '考研词汇'};
 
         function updateBookButtons(activeBookKey) {
@@ -612,7 +613,7 @@
         }
 
         async function loadWordBooks() {
-            const cached = localStorage.getItem('wordBooksCache');
+            const cached = localStorage.getItem(WORD_BOOKS_CACHE_KEY);
             if (cached) {
                 try {
                     app.wordBooks = JSON.parse(cached);
@@ -628,7 +629,8 @@
             try {
                 const response = await fetch('word_books.json');
                 app.wordBooks = await response.json();
-                localStorage.setItem('wordBooksCache', JSON.stringify(app.wordBooks));
+                localStorage.removeItem('wordBooksCache');
+                localStorage.setItem(WORD_BOOKS_CACHE_KEY, JSON.stringify(app.wordBooks));
                 console.log('从网络加载词书并缓存');
                 showBookSelection();
                 updateResumeButton();
