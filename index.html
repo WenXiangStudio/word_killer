@@ -159,8 +159,8 @@
                     <button class="speak-btn" onclick="speakWord()">🔊</button>
                 </div>
                 <div class="phonetic" id="word-phonetic">/phonetic/</div>
-                <div id="pronunciation-fallback" class="pronunciation-fallback hidden">
-                    <p>如果没有自动发音，请点下面的播放控件。</p>
+                <div id="pronunciation-fallback" class="pronunciation-fallback">
+                    <p>如果喇叭没有声音，请直接点下面的播放控件。</p>
                     <audio id="pronunciation-player" controls playsinline webkit-playsinline preload="none"></audio>
                 </div>
             </div>
@@ -367,9 +367,10 @@
         }
 
         function hidePronunciationFallback() {
-            const container = document.getElementById('pronunciation-fallback');
-            if (container) {
-                container.classList.add('hidden');
+            const player = getPronunciationPlayer();
+            if (player) {
+                player.removeAttribute('src');
+                player.load();
             }
         }
 
@@ -1032,6 +1033,7 @@
             document.getElementById('word-progress').textContent = `${app.currentWordIdx + 1}/${app.allLists[app.currentListIdx].length}`;
             document.getElementById('score-display').textContent = `正确: ${app.score}`;
             document.getElementById('word-text').textContent = word.word;
+            showPronunciationFallback(getPronunciationAudioUrl(word.word));
             
             const renderToken = ++currentWordRenderToken;
             const phonetic = hydrateWordPhonetic(word);
