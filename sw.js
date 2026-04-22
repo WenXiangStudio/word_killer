@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wordkiller-v3';
+const CACHE_NAME = 'wordkiller-v4';
 const APP_SHELL = [
   new URL('./', self.location).toString(),
   new URL('index.html', self.location).toString(),

@@ -203,8 +203,70 @@
 
         let currentBookKey = 'cet4';
         const WORD_APP_STATE_KEY = 'wordAppState';
-        const WORD_BOOKS_CACHE_KEY = 'wordBooksCache:v2';
+        const WORD_BOOKS_CACHE_KEY = 'wordBooksCache:v3';
+        const LEGACY_WORD_BOOKS_CACHE_KEYS = ['wordBooksCache', 'wordBooksCache:v2'];
         const BOOK_NAMES = {cet4: '四级词汇', cet6: '六级词汇', kaoyan: '考研词汇'};
+        let currentWordRenderToken = 0;
+        let phoneticCache = {};
+
+        function getWordKey(word) {
+            return String(word || '').trim().toLowerCase();
+        }
+
+        function setCachedPhonetic(word, phonetic) {
+            const key = getWordKey(word);
+            const normalized = normalizePhonetic(phonetic);
+            if (key && normalized) {
+                phoneticCache[key] = normalized;
+            }
+            return normalized;
+        }
+
+        function getCachedPhonetic(word) {
+            return phoneticCache[getWordKey(word)] || '';
+        }
+
+        function rebuildPhoneticCache() {
+            phoneticCache = {};
+
+            if (typeof PHONETIC_DB !== 'undefined') {
+                Object.entries(PHONETIC_DB).forEach(([word, phonetic]) => {
+                    setCachedPhonetic(word, phonetic);
+                });
+            }
+
+            if (app.wordBooks) {
+                Object.values(app.wordBooks).forEach(words => {
+                    words.forEach(item => setCachedPhonetic(item.word, item.phonetic));
+                });
+            }
+
+            if (app.words) {
+                app.words.forEach(item => setCachedPhonetic(item.word, item.phonetic));
+            }
+        }
+
+        function hydrateWordPhonetic(word) {
+            if (!word) return '';
+            if (word.phonetic) {
+                return setCachedPhonetic(word.word, word.phonetic);
+            }
+
+            const phonetic = getCachedPhonetic(word.word);
+            if (phonetic) {
+                word.phonetic = phonetic;
+                return phonetic;
+            }
+
+            return '';
+        }
+
+        function hydrateWordListPhonetics(words) {
+            if (!Array.isArray(words)) return;
+            words.forEach(word => {
+                hydrateWordPhonetic(word);
+            });
+        }
 
         function updateBookButtons(activeBookKey) {
             ['cet4', 'cet6', 'kaoyan'].forEach(key => {
@@ -221,6 +283,7 @@
         function setCustomWords(words, label = '') {
             currentBookKey = null;
             app.words = words;
+            hydrateWordListPhonetics(app.words);
             updateBookButtons(null);
             document.getElementById('book-info').textContent = `已导入自定义词书（${app.words.length}词）`;
             document.getElementById('file-info').textContent = label || `已加载 ${app.words.length} 个单词`;
@@ -617,6 +680,7 @@
             if (cached) {
                 try {
                     app.wordBooks = JSON.parse(cached);
+                    rebuildPhoneticCache();
                     console.log('从缓存加载词书');
                     showBookSelection();
                     updateResumeButton();
@@ -629,8 +693,9 @@
             try {
                 const response = await fetch('word_books.json');
                 app.wordBooks = await response.json();
-                localStorage.removeItem('wordBooksCache');
+                LEGACY_WORD_BOOKS_CACHE_KEYS.forEach(key => localStorage.removeItem(key));
                 localStorage.setItem(WORD_BOOKS_CACHE_KEY, JSON.stringify(app.wordBooks));
+                rebuildPhoneticCache();
                 console.log('从网络加载词书并缓存');
                 showBookSelection();
                 updateResumeButton();
@@ -693,6 +758,7 @@
             currentBookKey = bookKey;
             if (!app.wordBooks || !app.wordBooks[bookKey]) return;
             app.words = [...app.wordBooks[bookKey]];
+            hydrateWordListPhonetics(app.words);
             updateBookButtons(bookKey);
             document.getElementById('book-info').textContent = `已选择：${BOOK_NAMES[bookKey]}（${app.words.length}词）`;
             document.getElementById('file-info').textContent = '';
@@ -739,33 +805,33 @@
             const container = document.getElementById('preview-words');
             container.innerHTML = '';
             
-            // 先显示单词，不带音标
             list.forEach((word, idx) => {
                 const phoneticId = `ph-${listIdx}-${idx}`;
+                const phonetic = hydrateWordPhonetic(word);
                 const div = document.createElement('div');
                 div.className = 'preview-word';
                 div.innerHTML = `
                     <div>
                         <div class="pw-en">${word.word}</div>
-                        <div class="pw-phonetic" id="${phoneticId}">${word.phonetic || '...'}</div>
+                        <div class="pw-phonetic" id="${phoneticId}">${phonetic || '...'}</div>
                     </div>
                     <div class="pw-cn">${word.meaning}</div>
                 `;
                 container.appendChild(div);
             });
             
-            // 后台异步加载音标
-            for (const [idx, word] of list.entries()) {
-                if (!word.phonetic) {
-                    const phonetic = await fetchPhonetic(word.word);
-                    const phEl = document.getElementById(`ph-${listIdx}-${idx}`);
-                    if (phEl && phonetic) {
-                        phEl.textContent = phonetic;
-                    } else if (phEl) {
-                        phEl.textContent = '';
-                    }
+            const pendingLoads = list.map(async (word, idx) => {
+                if (hydrateWordPhonetic(word)) return;
+                const phonetic = await fetchPhonetic(word.word);
+                if (phonetic) {
+                    word.phonetic = phonetic;
                 }
-            }
+                const phEl = document.getElementById(`ph-${listIdx}-${idx}`);
+                if (phEl) {
+                    phEl.textContent = phonetic || '';
+                }
+            });
+            Promise.allSettled(pendingLoads);
         }
 
         function startListLearning() {
@@ -786,6 +852,7 @@
                     document.getElementById('words-per-list').value = app.wordsPerList;
                     app.words = Array.isArray(state.words) ? state.words : [];
                     currentBookKey = state.currentBook || null;
+                    hydrateWordListPhonetics(app.words);
 
                     if (!app.words.length) {
                         throw new Error('学习记录缺少词书数据');
@@ -854,15 +921,9 @@
             document.getElementById('score-display').textContent = `正确: ${app.score}`;
             document.getElementById('word-text').textContent = word.word;
             
-            // 自动获取音标
-            let phonetic = word.phonetic || '';
-            if (!phonetic) {
-                phonetic = await fetchPhonetic(word.word);
-                if (phonetic) {
-                    word.phonetic = phonetic;
-                }
-            }
-            document.getElementById('word-phonetic').textContent = phonetic;
+            const renderToken = ++currentWordRenderToken;
+            const phonetic = hydrateWordPhonetic(word);
+            document.getElementById('word-phonetic').textContent = phonetic || '...';
             
             document.getElementById('feedback-area').innerHTML = '';
             document.getElementById('answer-input').value = '';
@@ -876,21 +937,27 @@
             }
             updateModeButtons();
             persistAppState();
-        }
 
-        // 音标缓存
-        let phoneticCache = {};
+            if (!phonetic) {
+                fetchPhonetic(word.word).then(fetchedPhonetic => {
+                    if (renderToken !== currentWordRenderToken) return;
+                    if (fetchedPhonetic) {
+                        word.phonetic = fetchedPhonetic;
+                    }
+                    document.getElementById('word-phonetic').textContent = fetchedPhonetic || '';
+                    persistAppState();
+                });
+            }
+        }
 
         // 获取音标（优先本地数据库，其次有道API，最后Free Dictionary）
         async function fetchPhonetic(word) {
-            if (phoneticCache[word]) {
-                return phoneticCache[word];
-            }
+            const cachedPhonetic = getCachedPhonetic(word);
+            if (cachedPhonetic) return cachedPhonetic;
             
             // 1. 优先使用本地音标数据库
             if (typeof PHONETIC_DB !== 'undefined' && PHONETIC_DB[word]) {
-                phoneticCache[word] = PHONETIC_DB[word];
-                return PHONETIC_DB[word];
+                return setCachedPhonetic(word, PHONETIC_DB[word]);
             }
             
             // 2. 尝试有道词典API（使用CORS代理）
@@ -914,9 +981,7 @@
                         const w = data.ec.word[0];
                         const usphone = w.usphone || w.phone;
                         if (usphone) {
-                            const phonetic = `/${usphone}/`;
-                            phoneticCache[word] = phonetic;
-                            return phonetic;
+                            return setCachedPhonetic(word, `/${usphone}/`);
                         }
                     }
                 }
@@ -938,8 +1003,7 @@
                 if (data && data[0] && data[0].phonetics) {
                     for (const p of data[0].phonetics) {
                         if (p.text) {
-                            phoneticCache[word] = p.text;
-                            return p.text;
+                            return setCachedPhonetic(word, p.text);
                         }
                     }
                 }
