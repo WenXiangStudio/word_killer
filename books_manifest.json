@@ -1,0 +1,20 @@
+{
+  "version": "books-v1",
+  "books": {
+    "cet4": {
+      "name": "四级词汇",
+      "count": 7508,
+      "path": "books/cet4.json"
+    },
+    "cet6": {
+      "name": "六级词汇",
+      "count": 5651,
+      "path": "books/cet6.json"
+    },
+    "kaoyan": {
+      "name": "考研词汇",
+      "count": 9601,
+      "path": "books/kaoyan.json"
+    }
+  }
+}

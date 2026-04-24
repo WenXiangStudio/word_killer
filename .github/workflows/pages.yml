@@ -33,12 +33,14 @@ jobs:
           mkdir -p _site
           cp index.html _site/
           cp reset.html _site/
+          cp books_manifest.json _site/
           cp manifest.json _site/
           cp phonetic_db.js _site/
           cp sw.js _site/
           cp word_books.json _site/
           cp icon-192.png _site/
           cp icon-512.png _site/
+          cp -R books _site/
           cp .nojekyll _site/
 
       - name: Upload Pages artifact

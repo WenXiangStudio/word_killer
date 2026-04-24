@@ -18,6 +18,8 @@ BOOK_SOURCES = {
 }
 ROOT = Path(__file__).resolve().parent
 WORD_BOOKS_PATH = ROOT / "word_books.json"
+BOOKS_DIR = ROOT / "books"
+BOOKS_MANIFEST_PATH = ROOT / "books_manifest.json"
 PHONETIC_DB_PATH = ROOT / "phonetic_db.js"
 REQUEST_HEADERS = {"User-Agent": "Mozilla/5.0"}
 MAX_WORKERS = 12
@@ -31,6 +33,11 @@ EXCLUDED_WORDS = {
 MANUAL_PHONETICS = {
     "certify": "/ˈsɝː.tə.faɪ/",
     "proximately": "/ˈprɑːk.sə.mət.li/",
+}
+BOOK_DISPLAY_NAMES = {
+    "cet4": "四级词汇",
+    "cet6": "六级词汇",
+    "kaoyan": "考研词汇",
 }
 
 
@@ -287,7 +294,30 @@ def main():
         encoding="utf-8",
     )
 
+    BOOKS_DIR.mkdir(exist_ok=True)
+    manifest = {
+        "version": "books-v1",
+        "books": {}
+    }
+
+    for key, words in all_words.items():
+        (BOOKS_DIR / f"{key}.json").write_text(
+            json.dumps(words, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        manifest["books"][key] = {
+            "name": BOOK_DISPLAY_NAMES[key],
+            "count": len(words),
+            "path": f"books/{key}.json",
+        }
+
+    BOOKS_MANIFEST_PATH.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
     print(f"词书已写入 {WORD_BOOKS_PATH.name}")
+    print(f"词书清单已写入 {BOOKS_MANIFEST_PATH.name}")
     print(f"总计: {sum(len(words) for words in all_words.values())} 词")
 
 

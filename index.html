@@ -219,20 +219,23 @@
             wrongWords: [],
             choiceLocked: false,
             showAnswer: false,
-            wordBooks: null,
+            wordBooks: {},
+            bookManifest: null,
             selectedListIdx: 0
         };
 
         let currentBookKey = 'cet4';
-        const APP_VERSION = 'v2026.04.23-1';
+        const APP_VERSION = 'v2026.04.24-1';
         const WORD_APP_STATE_KEY = 'wordAppState';
-        const WORD_BOOKS_CACHE_KEY = 'wordBooksCache:v3';
-        const LEGACY_WORD_BOOKS_CACHE_KEYS = ['wordBooksCache', 'wordBooksCache:v2'];
+        const WORD_BOOKS_CACHE_KEY = 'wordBooksManifest:v1';
+        const LEGACY_WORD_BOOKS_CACHE_KEYS = ['wordBooksCache', 'wordBooksCache:v2', 'wordBooksCache:v3'];
+        const WORD_BOOKS_MANIFEST_PATH = 'books_manifest.json';
         const BOOK_NAMES = {cet4: '四级词汇', cet6: '六级词汇', kaoyan: '考研词汇'};
         let currentWordRenderToken = 0;
         let phoneticCache = {};
         let englishVoices = [];
         let pronunciationAudio = null;
+        const bookLoadPromises = {};
 
         function getWordKey(word) {
             return String(word || '').trim().toLowerCase();
@@ -284,6 +287,66 @@
             }
 
             return '';
+        }
+
+        function getBookManifestEntry(bookKey) {
+            return app.bookManifest?.books?.[bookKey] || null;
+        }
+
+        function getCurrentBookWordCount() {
+            if (app.words.length > 0) {
+                return app.words.length;
+            }
+
+            const manifestEntry = getBookManifestEntry(currentBookKey);
+            return manifestEntry?.count || 0;
+        }
+
+        function updateSelectedBookInfo(extraText = '') {
+            const bookInfo = document.getElementById('book-info');
+            if (!currentBookKey || !BOOK_NAMES[currentBookKey]) {
+                bookInfo.textContent = '请选择词书';
+                return;
+            }
+
+            const count = getCurrentBookWordCount();
+            const suffix = extraText ? ` · ${extraText}` : '';
+            bookInfo.textContent = `已选择：${BOOK_NAMES[currentBookKey]}（${count}词）${suffix}`;
+        }
+
+        async function ensureBookLoaded(bookKey) {
+            const manifestEntry = getBookManifestEntry(bookKey);
+            if (!manifestEntry) {
+                throw new Error('词书清单不存在');
+            }
+
+            if (app.wordBooks[bookKey]) {
+                return app.wordBooks[bookKey];
+            }
+
+            if (bookLoadPromises[bookKey]) {
+                return bookLoadPromises[bookKey];
+            }
+
+            bookLoadPromises[bookKey] = (async () => {
+                const response = await fetch(manifestEntry.path);
+                if (!response.ok) {
+                    throw new Error(`词书加载失败：${response.status}`);
+                }
+
+                const words = await response.json();
+                hydrateWordListPhonetics(words);
+                app.wordBooks[bookKey] = words;
+                rebuildPhoneticCache();
+
+                return words;
+            })();
+
+            try {
+                return await bookLoadPromises[bookKey];
+            } finally {
+                delete bookLoadPromises[bookKey];
+            }
         }
 
         function refreshEnglishVoices() {
@@ -815,11 +878,12 @@
             const cached = localStorage.getItem(WORD_BOOKS_CACHE_KEY);
             if (cached) {
                 try {
-                    app.wordBooks = JSON.parse(cached);
+                    app.bookManifest = JSON.parse(cached);
                     rebuildPhoneticCache();
                     console.log('从缓存加载词书');
                     showBookSelection();
                     updateResumeButton();
+                    ensureBookLoaded('cet4').catch(() => {});
                     return;
                 } catch (e) {
                     console.error('缓存解析失败');
@@ -827,14 +891,15 @@
             }
 
             try {
-                const response = await fetch('word_books.json');
-                app.wordBooks = await response.json();
+                const response = await fetch(WORD_BOOKS_MANIFEST_PATH);
+                app.bookManifest = await response.json();
                 LEGACY_WORD_BOOKS_CACHE_KEYS.forEach(key => localStorage.removeItem(key));
-                localStorage.setItem(WORD_BOOKS_CACHE_KEY, JSON.stringify(app.wordBooks));
+                localStorage.setItem(WORD_BOOKS_CACHE_KEY, JSON.stringify(app.bookManifest));
                 rebuildPhoneticCache();
-                console.log('从网络加载词书并缓存');
+                console.log('从网络加载词书清单并缓存');
                 showBookSelection();
                 updateResumeButton();
+                ensureBookLoaded('cet4').catch(() => {});
             } catch (error) {
                 console.error('加载词书失败:', error);
                 document.getElementById('loading-area').innerHTML = '<p style="color:#d9534f;">加载词书失败，请刷新重试</p>';
@@ -849,7 +914,7 @@
 
         function updateListCount() {
             app.wordsPerList = parseInt(document.getElementById('words-per-list').value) || 50;
-            const count = Math.ceil(app.words.length / app.wordsPerList) || 0;
+            const count = Math.ceil(getCurrentBookWordCount() / app.wordsPerList) || 0;
             document.getElementById('list-count').textContent = `将分为 ${count} 个List`;
         }
 
@@ -892,12 +957,30 @@
 
         function selectBook(bookKey) {
             currentBookKey = bookKey;
-            if (!app.wordBooks || !app.wordBooks[bookKey]) return;
-            app.words = [...app.wordBooks[bookKey]];
-            hydrateWordListPhonetics(app.words);
             updateBookButtons(bookKey);
-            document.getElementById('book-info').textContent = `已选择：${BOOK_NAMES[bookKey]}（${app.words.length}词）`;
             document.getElementById('file-info').textContent = '';
+            if (app.wordBooks[bookKey]) {
+                app.words = [...app.wordBooks[bookKey]];
+                hydrateWordListPhonetics(app.words);
+                updateSelectedBookInfo();
+            } else {
+                app.words = [];
+                updateSelectedBookInfo('加载中');
+                ensureBookLoaded(bookKey)
+                    .then(words => {
+                        if (currentBookKey !== bookKey) return;
+                        app.words = [...words];
+                        hydrateWordListPhonetics(app.words);
+                        updateSelectedBookInfo();
+                        updateListCount();
+                    })
+                    .catch(error => {
+                        console.error('词书加载失败:', error);
+                        if (currentBookKey === bookKey) {
+                            updateSelectedBookInfo('加载失败');
+                        }
+                    });
+            }
             updateListCount();
         }
 
@@ -908,7 +991,22 @@
             }
         }
 
-        function showListSelection() {
+        async function showListSelection() {
+            if (currentBookKey && getBookManifestEntry(currentBookKey) && !app.wordBooks[currentBookKey]) {
+                try {
+                    updateSelectedBookInfo('加载中');
+                    const words = await ensureBookLoaded(currentBookKey);
+                    app.words = [...words];
+                    hydrateWordListPhonetics(app.words);
+                    updateSelectedBookInfo();
+                } catch (error) {
+                    console.error('词书加载失败:', error);
+                    updateSelectedBookInfo('加载失败');
+                    alert('词书加载失败，请检查网络后重试');
+                    return;
+                }
+            }
+
             if (app.words.length === 0) {
                 alert('请先选择或导入词书');
                 return;
