@@ -60,6 +60,10 @@
         .preview-word .pw-en { font-size: 16px; font-weight: 500; color: #333; }
         .preview-word .pw-phonetic { font-size: 13px; color: #888; margin-top: 2px; }
         .preview-word .pw-cn { font-size: 14px; color: #666; text-align: right; max-width: 60%; }
+        .preview-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+        .preview-main > div { min-width: 0; }
+        .preview-speak-btn { background: #eef6ff; color: #4A90D9; border: 1px solid #cfe5fb; border-radius: 50%; width: 32px; height: 32px; font-size: 15px; cursor: pointer; flex: 0 0 auto; }
+        .preview-speak-btn:hover { background: #dcedff; }
         .speak-btn { background: #4A90D9; color: white; border: none; border-radius: 50%; width: 40px; height: 40px; font-size: 18px; cursor: pointer; margin-left: 10px; }
         .speak-btn:hover { background: #357abd; }
         .word-header { display: flex; align-items: center; justify-content: center; gap: 10px; }
@@ -113,6 +117,9 @@
                     </div>
                     <div id="book-info" style="text-align:center;color:#666;font-size:14px;">请选择词书</div>
                 </div>
+
+                <button class="btn btn-orange" onclick="reviewCollectedWrongWords()">📝 复习错题收录</button>
+                <div id="wrong-collection-info" class="resume-info">暂无错题收录</div>
 
                 <div class="card">
                     <label>📤 或导入自定义词书（TXT / CSV / TSV / MD / JSON）</label>
@@ -203,6 +210,7 @@
             </div>
             <button class="btn btn-primary" onclick="showSetup()">重新开始</button>
             <button class="btn btn-orange" onclick="reviewWrongWords()">复习错词</button>
+            <button class="btn btn-secondary" onclick="reviewCollectedWrongWords()">复习全部收录错题</button>
         </div>
     </div>
     <div id="version-badge" class="version-badge">版本 --</div>
@@ -225,8 +233,9 @@
         };
 
         let currentBookKey = 'cet4';
-        const APP_VERSION = 'v2026.04.24-1';
+        const APP_VERSION = 'v2026.04.24-2';
         const WORD_APP_STATE_KEY = 'wordAppState';
+        const WRONG_WORDS_COLLECTION_KEY = 'wrongWordsCollection:v1';
         const WORD_BOOKS_CACHE_KEY = 'wordBooksManifest:v1';
         const LEGACY_WORD_BOOKS_CACHE_KEYS = ['wordBooksCache', 'wordBooksCache:v2', 'wordBooksCache:v3'];
         const WORD_BOOKS_MANIFEST_PATH = 'books_manifest.json';
@@ -235,6 +244,67 @@
         let phoneticCache = {};
         let englishVoices = [];
         let pronunciationAudio = null;
+
+        function getWrongWordKey(word) {
+            const bookKey = word.bookKey || currentBookKey;
+            return `${bookKey}::${word.word}::${word.meaning}`;
+        }
+
+        function getWrongWordsCollection() {
+            try {
+                const data = JSON.parse(localStorage.getItem(WRONG_WORDS_COLLECTION_KEY) || '{}');
+                return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+            } catch (e) {
+                return {};
+            }
+        }
+
+        function saveWrongWordsCollection(collection) {
+            localStorage.setItem(WRONG_WORDS_COLLECTION_KEY, JSON.stringify(collection));
+        }
+
+        function getCollectedWrongWords() {
+            return Object.values(getWrongWordsCollection())
+                .sort((a, b) => (b.lastWrongAt || 0) - (a.lastWrongAt || 0));
+        }
+
+        function updateWrongCollectionInfo() {
+            const info = document.getElementById('wrong-collection-info');
+            if (!info) return;
+
+            const words = getCollectedWrongWords();
+            if (!words.length) {
+                info.textContent = '暂无错题收录';
+                return;
+            }
+
+            const totalWrongCount = words.reduce((sum, item) => sum + (item.wrongCount || 0), 0);
+            info.textContent = `已收录 ${words.length} 个错题，累计错 ${totalWrongCount} 次`;
+        }
+
+        function recordWrongWord(word) {
+            if (!word || !word.word || !word.meaning) return;
+
+            if (!app.wrongWords.some(item => item.word === word.word && item.meaning === word.meaning)) {
+                app.wrongWords.push(word);
+            }
+
+            const collection = getWrongWordsCollection();
+            const key = getWrongWordKey(word);
+            const existing = collection[key] || {};
+            collection[key] = {
+                word: word.word,
+                meaning: word.meaning,
+                phonetic: word.phonetic || existing.phonetic || '',
+                bookKey: word.bookKey || currentBookKey,
+                bookName: word.bookName || BOOK_NAMES[currentBookKey] || currentBookKey,
+                wrongCount: (existing.wrongCount || 0) + 1,
+                firstWrongAt: existing.firstWrongAt || Date.now(),
+                lastWrongAt: Date.now()
+            };
+            saveWrongWordsCollection(collection);
+            updateWrongCollectionInfo();
+        }
         const bookLoadPromises = {};
 
         function getWordKey(word) {
@@ -909,6 +979,7 @@
         function showBookSelection() {
             document.getElementById('loading-area').classList.add('hidden');
             document.getElementById('book-selection').classList.remove('hidden');
+            updateWrongCollectionInfo();
             selectBook('cet4');
         }
 
@@ -1045,12 +1116,16 @@
                 const div = document.createElement('div');
                 div.className = 'preview-word';
                 div.innerHTML = `
-                    <div>
-                        <div class="pw-en">${word.word}</div>
-                        <div class="pw-phonetic" id="${phoneticId}">${phonetic || '...'}</div>
+                    <div class="preview-main">
+                        <button class="preview-speak-btn" type="button" aria-label="播放 ${word.word} 的读音">🔊</button>
+                        <div>
+                            <div class="pw-en">${word.word}</div>
+                            <div class="pw-phonetic" id="${phoneticId}">${phonetic || '...'}</div>
+                        </div>
                     </div>
                     <div class="pw-cn">${word.meaning}</div>
                 `;
+                div.querySelector('.preview-speak-btn').onclick = () => speakSpecificWord(word);
                 container.appendChild(div);
             });
             
@@ -1135,6 +1210,7 @@
             document.getElementById('preview-page').classList.add('hidden');
             document.getElementById('result-page').classList.add('hidden');
             document.getElementById('setup-page').classList.remove('hidden');
+            updateWrongCollectionInfo();
         }
 
         async function showWord() {
@@ -1253,12 +1329,10 @@
         }
 
         // 单词发音：优先远程词典音频，失败后退回浏览器原生语音
-        function speakWord() {
-            const currentList = app.allLists[app.currentListIdx];
-            if (!currentList || !currentList[app.currentWordIdx]) {
+        function speakSpecificWord(word) {
+            if (!word || !word.word) {
                 return;
             }
-            const word = currentList[app.currentWordIdx];
             stopCurrentPronunciation();
             hidePronunciationFallback();
 
@@ -1300,6 +1374,14 @@
             if (playPromise && typeof playPromise.catch === 'function') {
                 playPromise.catch(fallback);
             }
+        }
+
+        function speakWord() {
+            const currentList = app.allLists[app.currentListIdx];
+            if (!currentList || !currentList[app.currentWordIdx]) {
+                return;
+            }
+            speakSpecificWord(currentList[app.currentWordIdx]);
         }
 
         function updateModeButtons() {
@@ -1349,9 +1431,7 @@
                 setTimeout(showWord, 800);
             } else {
                 app.choiceLocked = true;
-                if (!app.wrongWords.some(item => item.word === word.word && item.meaning === word.meaning)) {
-                    app.wrongWords.push(word);
-                }
+                recordWrongWord(word);
                 persistAppState();
                 document.querySelectorAll('#choices-area .choice-btn').forEach(btn => {
                     btn.disabled = true;
@@ -1378,9 +1458,7 @@
                 feedback.innerHTML = '<p style="color:#5cb85c;font-size:18px;">✓ 正确！</p>';
                 setTimeout(showWord, 800);
             } else {
-                if (!app.wrongWords.some(item => item.word === word.word && item.meaning === word.meaning)) {
-                    app.wrongWords.push(word);
-                }
+                recordWrongWord(word);
                 persistAppState();
                 feedback.innerHTML = `<p style="color:#d9534f;font-size:16px;">✗ 错误！正确意思：${word.meaning}</p><button class="btn btn-secondary" onclick="nextWord()">下一个</button>`;
             }
@@ -1419,6 +1497,7 @@
             clearAppState();
             document.getElementById('learn-page').classList.add('hidden');
             document.getElementById('result-page').classList.remove('hidden');
+            updateWrongCollectionInfo();
             const total = app.score + app.wrongWords.length;
             const accuracy = total > 0 ? ((app.score / total) * 100).toFixed(1) : 0;
             document.getElementById('accuracy').textContent = accuracy + '%';
@@ -1444,6 +1523,33 @@
             app.currentListIdx = 0;
             app.currentWordIdx = 0;
             app.score = 0;
+            app.choiceLocked = false;
+            persistAppState();
+            showLearnPage();
+        }
+
+        function reviewCollectedWrongWords() {
+            const words = getCollectedWrongWords();
+            if (words.length === 0) {
+                alert('暂无错题收录');
+                return;
+            }
+
+            currentBookKey = 'wrong-collection';
+            app.words = words.map(item => ({
+                word: item.word,
+                meaning: item.meaning,
+                phonetic: item.phonetic || '',
+                bookKey: item.bookKey,
+                bookName: item.bookName
+            }));
+            app.wordsPerList = parseInt(document.getElementById('words-per-list').value) || 50;
+            hydrateWordListPhonetics(app.words);
+            splitToLists();
+            app.currentListIdx = 0;
+            app.currentWordIdx = 0;
+            app.score = 0;
+            app.wrongWords = [];
             app.choiceLocked = false;
             persistAppState();
             showLearnPage();
