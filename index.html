@@ -56,17 +56,17 @@
         .list-item .list-num { font-size: 18px; font-weight: bold; color: #4A90D9; }
         .list-item .list-count { font-size: 12px; color: #999; margin-top: 5px; }
         .preview-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; color: #666; font-size: 13px; }
-        .preview-word { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px; border-bottom: 1px solid #f0f0f0; }
+        .preview-word { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 12px; border-bottom: 1px solid #f0f0f0; }
         .preview-word:last-child { border-bottom: none; }
         .preview-word .pw-en { font-size: 16px; font-weight: 500; color: #333; }
         .preview-word .pw-phonetic { font-size: 13px; color: #888; margin-top: 2px; }
-        .preview-word .pw-cn { font-size: 14px; color: #666; text-align: right; max-width: 46%; cursor: pointer; transition: all 0.2s ease; }
+        .preview-word .pw-cn { grid-column: 1 / -1; font-size: 14px; color: #666; line-height: 1.45; cursor: pointer; transition: all 0.2s ease; }
         .preview-word .pw-cn.masked { filter: blur(5px); color: transparent; text-shadow: 0 0 10px rgba(102,102,102,0.85); user-select: none; }
-        .preview-word .pw-cn.masked::after { content: '点击显示'; display: block; color: #999; filter: none; text-shadow: none; font-size: 12px; }
+        .preview-word .pw-cn.masked::after { content: '点击显示释义'; display: block; color: #999; filter: none; text-shadow: none; font-size: 12px; }
         .preview-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
         .preview-main > div { min-width: 0; }
-        .preview-forgot { display: flex; align-items: center; gap: 6px; color: #666; font-size: 13px; white-space: nowrap; }
-        .preview-forgot select { width: auto; min-width: 64px; padding: 6px 8px; margin: 0; font-size: 13px; }
+        .forgot-toggle { align-self: center; background: #f4f6f8; color: #666; border: 1px solid #dfe4ea; border-radius: 999px; padding: 7px 10px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+        .forgot-toggle.active { background: #fff3e6; color: #d9822b; border-color: #f0b36b; }
         .preview-speak-btn { background: #eef6ff; color: #4A90D9; border: 1px solid #cfe5fb; border-radius: 50%; width: 32px; height: 32px; font-size: 15px; cursor: pointer; flex: 0 0 auto; }
         .preview-speak-btn:hover { background: #dcedff; }
         .speak-btn { background: #4A90D9; color: white; border: none; border-radius: 50%; width: 40px; height: 40px; font-size: 18px; cursor: pointer; margin-left: 10px; }
@@ -247,7 +247,7 @@
         };
 
         let currentBookKey = 'cet4';
-        const APP_VERSION = 'v2026.04.25-1';
+        const APP_VERSION = 'v2026.04.25-2';
         const WORD_APP_STATE_KEY = 'wordAppState';
         const WRONG_WORDS_COLLECTION_KEY = 'wrongWordsCollection:v1';
         const FORGOTTEN_WORDS_COLLECTION_KEY = 'forgottenWordsCollection:v1';
@@ -1225,18 +1225,22 @@
                             <div class="pw-phonetic" id="${phoneticId}">${phonetic || '...'}</div>
                         </div>
                     </div>
-                    <label class="preview-forgot">是否遗忘
-                        <select>
-                            <option value="no">否</option>
-                            <option value="yes">是</option>
-                        </select>
-                    </label>
+                    <button class="forgot-toggle" type="button"></button>
                     <div class="pw-cn${shouldMaskMeanings ? ' masked' : ''}">${word.meaning}</div>
                 `;
                 div.querySelector('.preview-speak-btn').onclick = () => speakSpecificWord(word);
-                const forgotSelect = div.querySelector('.preview-forgot select');
-                forgotSelect.value = isForgottenWord(word) ? 'yes' : 'no';
-                forgotSelect.onchange = () => setForgottenWord(word, forgotSelect.value === 'yes');
+                const forgotButton = div.querySelector('.forgot-toggle');
+                const renderForgotButton = () => {
+                    const forgotten = isForgottenWord(word);
+                    forgotButton.classList.toggle('active', forgotten);
+                    forgotButton.textContent = forgotten ? '已遗忘' : '未遗忘';
+                    forgotButton.setAttribute('aria-pressed', String(forgotten));
+                };
+                forgotButton.onclick = () => {
+                    setForgottenWord(word, !isForgottenWord(word));
+                    renderForgotButton();
+                };
+                renderForgotButton();
                 div.querySelector('.pw-cn').onclick = event => revealPreviewMeaning(event.currentTarget);
                 container.appendChild(div);
             });
