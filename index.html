@@ -55,13 +55,18 @@
         .list-item:hover { border-color: #4A90D9; }
         .list-item .list-num { font-size: 18px; font-weight: bold; color: #4A90D9; }
         .list-item .list-count { font-size: 12px; color: #999; margin-top: 5px; }
-        .preview-word { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #f0f0f0; }
+        .preview-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; color: #666; font-size: 13px; }
+        .preview-word { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px; border-bottom: 1px solid #f0f0f0; }
         .preview-word:last-child { border-bottom: none; }
         .preview-word .pw-en { font-size: 16px; font-weight: 500; color: #333; }
         .preview-word .pw-phonetic { font-size: 13px; color: #888; margin-top: 2px; }
-        .preview-word .pw-cn { font-size: 14px; color: #666; text-align: right; max-width: 60%; }
+        .preview-word .pw-cn { font-size: 14px; color: #666; text-align: right; max-width: 46%; cursor: pointer; transition: all 0.2s ease; }
+        .preview-word .pw-cn.masked { filter: blur(5px); color: transparent; text-shadow: 0 0 10px rgba(102,102,102,0.85); user-select: none; }
+        .preview-word .pw-cn.masked::after { content: '点击显示'; display: block; color: #999; filter: none; text-shadow: none; font-size: 12px; }
         .preview-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
         .preview-main > div { min-width: 0; }
+        .preview-forgot { display: flex; align-items: center; gap: 6px; color: #666; font-size: 13px; white-space: nowrap; }
+        .preview-forgot select { width: auto; min-width: 64px; padding: 6px 8px; margin: 0; font-size: 13px; }
         .preview-speak-btn { background: #eef6ff; color: #4A90D9; border: 1px solid #cfe5fb; border-radius: 50%; width: 32px; height: 32px; font-size: 15px; cursor: pointer; flex: 0 0 auto; }
         .preview-speak-btn:hover { background: #dcedff; }
         .speak-btn { background: #4A90D9; color: white; border: none; border-radius: 50%; width: 40px; height: 40px; font-size: 18px; cursor: pointer; margin-left: 10px; }
@@ -120,6 +125,8 @@
 
                 <button class="btn btn-orange" onclick="reviewCollectedWrongWords()">📝 复习错题收录</button>
                 <div id="wrong-collection-info" class="resume-info">暂无错题收录</div>
+                <button class="btn btn-secondary" onclick="reviewForgottenWords()">🔥 加强训练遗忘词</button>
+                <div id="forgot-home-info" class="resume-info">暂无遗忘单词收录</div>
 
                 <div class="card">
                     <label>📤 或导入自定义词书（TXT / CSV / TSV / MD / JSON）</label>
@@ -161,8 +168,15 @@
         <!-- List预览页 -->
         <div id="preview-page" class="hidden">
             <div class="header"><h1 id="preview-title">List 1</h1></div>
-            <div class="card" id="preview-words" style="max-height: 60vh; overflow-y: auto;"></div>
+            <div class="card">
+                <div class="preview-toolbar">
+                    <label style="margin:0;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="meaning-mask-toggle" checked onchange="togglePreviewMeaningMask(this.checked)"> 遮挡中文释义</label>
+                    <span id="forgot-preview-info">遗忘收录 0 个</span>
+                </div>
+                <div id="preview-words" style="max-height: 60vh; overflow-y: auto;"></div>
+            </div>
             <button class="btn btn-success" onclick="startListLearning()">🚀 开始背诵</button>
+            <button class="btn btn-orange" onclick="reviewForgottenWords()">🔥 加强训练遗忘词</button>
             <button class="btn btn-secondary" onclick="showListSelection()">返回</button>
         </div>
 
@@ -233,9 +247,10 @@
         };
 
         let currentBookKey = 'cet4';
-        const APP_VERSION = 'v2026.04.24-2';
+        const APP_VERSION = 'v2026.04.25-1';
         const WORD_APP_STATE_KEY = 'wordAppState';
         const WRONG_WORDS_COLLECTION_KEY = 'wrongWordsCollection:v1';
+        const FORGOTTEN_WORDS_COLLECTION_KEY = 'forgottenWordsCollection:v1';
         const WORD_BOOKS_CACHE_KEY = 'wordBooksManifest:v1';
         const LEGACY_WORD_BOOKS_CACHE_KEYS = ['wordBooksCache', 'wordBooksCache:v2', 'wordBooksCache:v3'];
         const WORD_BOOKS_MANIFEST_PATH = 'books_manifest.json';
@@ -245,22 +260,98 @@
         let englishVoices = [];
         let pronunciationAudio = null;
 
-        function getWrongWordKey(word) {
+        function getWordCollectionKey(word) {
             const bookKey = word.bookKey || currentBookKey;
             return `${bookKey}::${word.word}::${word.meaning}`;
         }
 
-        function getWrongWordsCollection() {
+        function getWrongWordKey(word) {
+            return getWordCollectionKey(word);
+        }
+
+        function getStoredCollection(storageKey) {
             try {
-                const data = JSON.parse(localStorage.getItem(WRONG_WORDS_COLLECTION_KEY) || '{}');
+                const data = JSON.parse(localStorage.getItem(storageKey) || '{}');
                 return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
             } catch (e) {
                 return {};
             }
         }
 
+        function saveStoredCollection(storageKey, collection) {
+            localStorage.setItem(storageKey, JSON.stringify(collection));
+        }
+
+        function getWrongWordsCollection() {
+            return getStoredCollection(WRONG_WORDS_COLLECTION_KEY);
+        }
+
         function saveWrongWordsCollection(collection) {
-            localStorage.setItem(WRONG_WORDS_COLLECTION_KEY, JSON.stringify(collection));
+            saveStoredCollection(WRONG_WORDS_COLLECTION_KEY, collection);
+        }
+
+        function getForgottenWordsCollection() {
+            return getStoredCollection(FORGOTTEN_WORDS_COLLECTION_KEY);
+        }
+
+        function saveForgottenWordsCollection(collection) {
+            saveStoredCollection(FORGOTTEN_WORDS_COLLECTION_KEY, collection);
+        }
+
+        function getCollectedForgottenWords() {
+            return Object.values(getForgottenWordsCollection())
+                .sort((a, b) => (b.markedAt || 0) - (a.markedAt || 0));
+        }
+
+        function updateForgottenCollectionInfo() {
+            const words = getCollectedForgottenWords();
+            const previewInfo = document.getElementById('forgot-preview-info');
+            const homeInfo = document.getElementById('forgot-home-info');
+            if (previewInfo) {
+                previewInfo.textContent = `遗忘收录 ${words.length} 个`;
+            }
+            if (homeInfo) {
+                homeInfo.textContent = words.length ? `已收录 ${words.length} 个遗忘单词` : '暂无遗忘单词收录';
+            }
+        }
+
+        function togglePreviewMeaningMask(enabled) {
+            document.querySelectorAll('#preview-words .pw-cn').forEach(el => {
+                el.classList.toggle('masked', enabled && el.dataset.revealed !== 'true');
+            });
+        }
+
+        function revealPreviewMeaning(el) {
+            if (!el) return;
+            el.dataset.revealed = 'true';
+            el.classList.remove('masked');
+        }
+
+        function isForgottenWord(word) {
+            return Boolean(getForgottenWordsCollection()[getWordCollectionKey(word)]);
+        }
+
+        function setForgottenWord(word, isForgotten) {
+            if (!word || !word.word || !word.meaning) return;
+            const collection = getForgottenWordsCollection();
+            const key = getWordCollectionKey(word);
+
+            if (isForgotten) {
+                const existing = collection[key] || {};
+                collection[key] = {
+                    word: word.word,
+                    meaning: word.meaning,
+                    phonetic: word.phonetic || existing.phonetic || '',
+                    bookKey: word.bookKey || currentBookKey,
+                    bookName: word.bookName || BOOK_NAMES[currentBookKey] || currentBookKey,
+                    markedAt: Date.now()
+                };
+            } else {
+                delete collection[key];
+            }
+
+            saveForgottenWordsCollection(collection);
+            updateForgottenCollectionInfo();
         }
 
         function getCollectedWrongWords() {
@@ -304,6 +395,14 @@
             };
             saveWrongWordsCollection(collection);
             updateWrongCollectionInfo();
+        }
+
+        function clearForgottenRecords(words) {
+            if (!Array.isArray(words) || words.length === 0) return;
+            const collection = getForgottenWordsCollection();
+            words.forEach(word => delete collection[getWordCollectionKey(word)]);
+            saveForgottenWordsCollection(collection);
+            updateForgottenCollectionInfo();
         }
         const bookLoadPromises = {};
 
@@ -980,6 +1079,7 @@
             document.getElementById('loading-area').classList.add('hidden');
             document.getElementById('book-selection').classList.remove('hidden');
             updateWrongCollectionInfo();
+            updateForgottenCollectionInfo();
             selectBook('cet4');
         }
 
@@ -1102,10 +1202,12 @@
         async function showListPreview(listIdx) {
             app.selectedListIdx = listIdx;
             const list = app.allLists[listIdx];
+            const shouldMaskMeanings = document.getElementById('meaning-mask-toggle').checked;
             
             document.getElementById('list-page').classList.add('hidden');
             document.getElementById('preview-page').classList.remove('hidden');
             document.getElementById('preview-title').textContent = `List ${listIdx + 1} 预览`;
+            updateForgottenCollectionInfo();
             
             const container = document.getElementById('preview-words');
             container.innerHTML = '';
@@ -1123,9 +1225,19 @@
                             <div class="pw-phonetic" id="${phoneticId}">${phonetic || '...'}</div>
                         </div>
                     </div>
-                    <div class="pw-cn">${word.meaning}</div>
+                    <label class="preview-forgot">是否遗忘
+                        <select>
+                            <option value="no">否</option>
+                            <option value="yes">是</option>
+                        </select>
+                    </label>
+                    <div class="pw-cn${shouldMaskMeanings ? ' masked' : ''}">${word.meaning}</div>
                 `;
                 div.querySelector('.preview-speak-btn').onclick = () => speakSpecificWord(word);
+                const forgotSelect = div.querySelector('.preview-forgot select');
+                forgotSelect.value = isForgottenWord(word) ? 'yes' : 'no';
+                forgotSelect.onchange = () => setForgottenWord(word, forgotSelect.value === 'yes');
+                div.querySelector('.pw-cn').onclick = event => revealPreviewMeaning(event.currentTarget);
                 container.appendChild(div);
             });
             
@@ -1211,6 +1323,7 @@
             document.getElementById('result-page').classList.add('hidden');
             document.getElementById('setup-page').classList.remove('hidden');
             updateWrongCollectionInfo();
+            updateForgottenCollectionInfo();
         }
 
         async function showWord() {
@@ -1495,9 +1608,13 @@
 
         function showResult() {
             clearAppState();
+            if (currentBookKey === 'forgotten-review' && app.wrongWords.length === 0) {
+                clearForgottenRecords(app.words);
+            }
             document.getElementById('learn-page').classList.add('hidden');
             document.getElementById('result-page').classList.remove('hidden');
             updateWrongCollectionInfo();
+            updateForgottenCollectionInfo();
             const total = app.score + app.wrongWords.length;
             const accuracy = total > 0 ? ((app.score / total) * 100).toFixed(1) : 0;
             document.getElementById('accuracy').textContent = accuracy + '%';
@@ -1536,6 +1653,33 @@
             }
 
             currentBookKey = 'wrong-collection';
+            app.words = words.map(item => ({
+                word: item.word,
+                meaning: item.meaning,
+                phonetic: item.phonetic || '',
+                bookKey: item.bookKey,
+                bookName: item.bookName
+            }));
+            app.wordsPerList = parseInt(document.getElementById('words-per-list').value) || 50;
+            hydrateWordListPhonetics(app.words);
+            splitToLists();
+            app.currentListIdx = 0;
+            app.currentWordIdx = 0;
+            app.score = 0;
+            app.wrongWords = [];
+            app.choiceLocked = false;
+            persistAppState();
+            showLearnPage();
+        }
+
+        function reviewForgottenWords() {
+            const words = getCollectedForgottenWords();
+            if (words.length === 0) {
+                alert('暂无遗忘单词收录');
+                return;
+            }
+
+            currentBookKey = 'forgotten-review';
             app.words = words.map(item => ({
                 word: item.word,
                 meaning: item.meaning,
