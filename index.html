@@ -55,6 +55,11 @@
         .list-item:hover { border-color: #4A90D9; }
         .list-item .list-num { font-size: 18px; font-weight: bold; color: #4A90D9; }
         .list-item .list-count { font-size: 12px; color: #999; margin-top: 5px; }
+        .list-pager { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+        .list-pager button { flex: 0 0 auto; border: none; border-radius: 8px; background: #eef6ff; color: #4A90D9; padding: 10px 12px; font-size: 14px; }
+        .list-pager button:disabled { opacity: 0.45; }
+        .list-pager select { flex: 1; margin: 0; padding: 9px 10px; font-size: 14px; }
+        .list-page-info { text-align: center; color: #666; font-size: 13px; margin-bottom: 10px; }
         .preview-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; color: #666; font-size: 13px; }
         .preview-word { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 12px; border-bottom: 1px solid #f0f0f0; }
         .preview-word:last-child { border-bottom: none; }
@@ -160,6 +165,12 @@
         <div id="list-page" class="hidden">
             <div class="header"><h1>📋 选择List</h1></div>
             <div class="card">
+                <div class="list-pager">
+                    <button type="button" id="list-prev-btn" onclick="changeListPage(-1)">上一页</button>
+                    <select id="list-page-select" onchange="goToListPage(parseInt(this.value, 10))"></select>
+                    <button type="button" id="list-next-btn" onclick="changeListPage(1)">下一页</button>
+                </div>
+                <div id="list-page-info" class="list-page-info"></div>
                 <div id="list-grid" class="list-grid"></div>
             </div>
             <button class="btn btn-secondary" onclick="showSetup()">返回</button>
@@ -243,11 +254,13 @@
             showAnswer: false,
             wordBooks: {},
             bookManifest: null,
-            selectedListIdx: 0
+            selectedListIdx: 0,
+            previewWords: [],
+            listPageIdx: 0
         };
 
         let currentBookKey = 'cet4';
-        const APP_VERSION = 'v2026.04.25-2';
+        const APP_VERSION = 'v2026.04.25-3';
         const WORD_APP_STATE_KEY = 'wordAppState';
         const WRONG_WORDS_COLLECTION_KEY = 'wrongWordsCollection:v1';
         const FORGOTTEN_WORDS_COLLECTION_KEY = 'forgottenWordsCollection:v1';
@@ -259,6 +272,7 @@
         let phoneticCache = {};
         let englishVoices = [];
         let pronunciationAudio = null;
+        const LISTS_PER_PAGE = 24;
 
         function getWordCollectionKey(word) {
             const bookKey = word.bookKey || currentBookKey;
@@ -325,6 +339,15 @@
             if (!el) return;
             el.dataset.revealed = 'true';
             el.classList.remove('masked');
+        }
+
+        function shuffledWords(words) {
+            const result = [...words];
+            for (let i = result.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [result[i], result[j]] = [result[j], result[i]];
+            }
+            return result;
         }
 
         function isForgottenWord(word) {
@@ -1162,6 +1185,50 @@
             }
         }
 
+        function renderListPage() {
+            const totalPages = Math.max(1, Math.ceil(app.allLists.length / LISTS_PER_PAGE));
+            app.listPageIdx = Math.min(Math.max(app.listPageIdx, 0), totalPages - 1);
+
+            const select = document.getElementById('list-page-select');
+            select.innerHTML = '';
+            for (let pageIdx = 0; pageIdx < totalPages; pageIdx++) {
+                const start = pageIdx * LISTS_PER_PAGE + 1;
+                const end = Math.min((pageIdx + 1) * LISTS_PER_PAGE, app.allLists.length);
+                const option = document.createElement('option');
+                option.value = pageIdx;
+                option.textContent = `第 ${pageIdx + 1}/${totalPages} 页 · List ${start}-${end}`;
+                select.appendChild(option);
+            }
+            select.value = app.listPageIdx;
+
+            document.getElementById('list-prev-btn').disabled = app.listPageIdx === 0;
+            document.getElementById('list-next-btn').disabled = app.listPageIdx >= totalPages - 1;
+
+            const startIdx = app.listPageIdx * LISTS_PER_PAGE;
+            const endIdx = Math.min(startIdx + LISTS_PER_PAGE, app.allLists.length);
+            document.getElementById('list-page-info').textContent = `当前显示 List ${startIdx + 1}-${endIdx}，共 ${app.allLists.length} 个List`;
+
+            const grid = document.getElementById('list-grid');
+            grid.innerHTML = '';
+            app.allLists.slice(startIdx, endIdx).forEach((list, offset) => {
+                const idx = startIdx + offset;
+                const div = document.createElement('div');
+                div.className = 'list-item';
+                div.innerHTML = `<div class="list-num">List ${idx + 1}</div><div class="list-count">${list.length}词</div>`;
+                div.onclick = () => showListPreview(idx);
+                grid.appendChild(div);
+            });
+        }
+
+        function changeListPage(delta) {
+            goToListPage(app.listPageIdx + delta);
+        }
+
+        function goToListPage(pageIdx) {
+            app.listPageIdx = pageIdx;
+            renderListPage();
+        }
+
         async function showListSelection() {
             if (currentBookKey && getBookManifestEntry(currentBookKey) && !app.wordBooks[currentBookKey]) {
                 try {
@@ -1184,24 +1251,17 @@
             }
             app.wordsPerList = parseInt(document.getElementById('words-per-list').value) || 50;
             splitToLists();
+            app.listPageIdx = Math.floor((app.selectedListIdx || 0) / LISTS_PER_PAGE);
             
             document.getElementById('setup-page').classList.add('hidden');
             document.getElementById('list-page').classList.remove('hidden');
-            
-            const grid = document.getElementById('list-grid');
-            grid.innerHTML = '';
-            app.allLists.forEach((list, idx) => {
-                const div = document.createElement('div');
-                div.className = 'list-item';
-                div.innerHTML = `<div class="list-num">List ${idx + 1}</div><div class="list-count">${list.length}词</div>`;
-                div.onclick = () => showListPreview(idx);
-                grid.appendChild(div);
-            });
+            renderListPage();
         }
 
         async function showListPreview(listIdx) {
             app.selectedListIdx = listIdx;
-            const list = app.allLists[listIdx];
+            const list = shuffledWords(app.allLists[listIdx] || []);
+            app.previewWords = list;
             const shouldMaskMeanings = document.getElementById('meaning-mask-toggle').checked;
             
             document.getElementById('list-page').classList.add('hidden');
@@ -1262,6 +1322,7 @@
         function startListLearning() {
             app.currentListIdx = app.selectedListIdx;
             app.currentWordIdx = 0;
+            app.allLists[app.currentListIdx] = shuffledWords(app.allLists[app.currentListIdx] || []);
             app.score = 0;
             app.wrongWords = [];
             app.choiceLocked = false;
