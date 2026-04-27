@@ -46,6 +46,15 @@
         .result h2 { color: #4A90D9; font-size: 28px; margin-bottom: 20px; }
         .stat { font-size: 48px; color: #5cb85c; margin: 20px 0; }
         .wrong-word { padding: 10px; background: #fff3f3; border-left: 3px solid #d9534f; margin-bottom: 8px; font-size: 14px; }
+        .stats-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 15px; }
+        .stats-card { background: #f7fbff; border: 1px solid #dbeeff; border-radius: 10px; padding: 14px; text-align: center; }
+        .stats-card .stats-num { color: #4A90D9; font-size: 24px; font-weight: 700; }
+        .stats-card .stats-label { color: #666; font-size: 13px; margin-top: 4px; }
+        .stats-row { padding: 12px; border-bottom: 1px solid #f0f0f0; }
+        .stats-row:last-child { border-bottom: none; }
+        .stats-row .stats-word { font-weight: 700; color: #333; margin-bottom: 4px; }
+        .stats-row .stats-meaning { color: #666; font-size: 13px; line-height: 1.45; margin-bottom: 6px; }
+        .stats-row .stats-counts { color: #999; font-size: 13px; }
         .hidden { display: none !important; }
         .file-info { text-align: center; color: #666; margin: 10px 0; }
         .loading { text-align: center; padding: 40px; color: #666; }
@@ -133,7 +142,7 @@
                 <div id="wrong-collection-info" class="resume-info">暂无错题收录</div>
                 <button class="btn btn-secondary" onclick="reviewForgottenWords()">🔥 加强训练遗忘词</button>
                 <div id="forgot-home-info" class="resume-info">暂无遗忘单词收录</div>
-                <div id="learning-stats-info" class="resume-info">累计错误 0 次 · 累计遗忘 0 次</div>
+                <button class="btn btn-primary" onclick="showLearningStats()">📊 学习统计</button>
 
                 <div class="card">
                     <label>📤 或导入自定义词书（TXT / CSV / TSV / MD / JSON）</label>
@@ -240,6 +249,25 @@
             <button class="btn btn-orange" onclick="reviewWrongWords()">复习错词</button>
             <button class="btn btn-secondary" onclick="reviewCollectedWrongWords()">复习全部收录错题</button>
         </div>
+
+        <!-- 学习统计页 -->
+        <div id="stats-page" class="hidden">
+            <div class="header"><h1>📊 学习统计</h1></div>
+            <div class="card">
+                <div class="stats-summary">
+                    <div class="stats-card">
+                        <div class="stats-num" id="stats-total-wrong">0</div>
+                        <div class="stats-label">累计错误</div>
+                    </div>
+                    <div class="stats-card">
+                        <div class="stats-num" id="stats-total-forgotten">0</div>
+                        <div class="stats-label">累计遗忘</div>
+                    </div>
+                </div>
+                <div id="stats-list"></div>
+            </div>
+            <button class="btn btn-secondary" onclick="showSetup()">返回</button>
+        </div>
     </div>
     <div id="version-badge" class="version-badge">版本 --</div>
 
@@ -264,7 +292,7 @@
         };
 
         let currentBookKey = 'cet4';
-        const APP_VERSION = 'v2026.04.27-1';
+        const APP_VERSION = 'v2026.04.27-2';
         const WORD_APP_STATE_KEY = 'wordAppState';
         const WRONG_WORDS_COLLECTION_KEY = 'wrongWordsCollection:v1';
         const FORGOTTEN_WORDS_COLLECTION_KEY = 'forgottenWordsCollection:v1';
@@ -334,12 +362,37 @@
         }
 
         function updateLearningStatsInfo() {
-            const info = document.getElementById('learning-stats-info');
-            if (!info) return;
             const stats = Object.values(getWordStatsCollection());
             const wrongTotal = stats.reduce((sum, item) => sum + (item.wrongCount || 0), 0);
             const forgottenTotal = stats.reduce((sum, item) => sum + (item.forgottenCount || 0), 0);
-            info.textContent = `累计错误 ${wrongTotal} 次 · 累计遗忘 ${forgottenTotal} 次`;
+            const wrongEl = document.getElementById('stats-total-wrong');
+            const forgottenEl = document.getElementById('stats-total-forgotten');
+            const listEl = document.getElementById('stats-list');
+            if (!wrongEl || !forgottenEl || !listEl) return;
+
+            wrongEl.textContent = wrongTotal;
+            forgottenEl.textContent = forgottenTotal;
+            listEl.innerHTML = '';
+
+            const rows = stats
+                .filter(item => (item.wrongCount || 0) > 0 || (item.forgottenCount || 0) > 0)
+                .sort((a, b) => ((b.wrongCount || 0) + (b.forgottenCount || 0)) - ((a.wrongCount || 0) + (a.forgottenCount || 0)));
+
+            if (!rows.length) {
+                listEl.innerHTML = '<p style="color:#999;text-align:center;padding:20px;">暂无统计记录</p>';
+                return;
+            }
+
+            rows.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'stats-row';
+                div.innerHTML = `
+                    <div class="stats-word">${item.word}</div>
+                    <div class="stats-meaning">${item.meaning}</div>
+                    <div class="stats-counts">累计错误 ${item.wrongCount || 0} 次 · 累计遗忘 ${item.forgottenCount || 0} 次</div>
+                `;
+                listEl.appendChild(div);
+            });
         }
 
         function getWrongWordsCollection() {
@@ -1169,7 +1222,6 @@
             document.getElementById('book-selection').classList.remove('hidden');
             updateWrongCollectionInfo();
             updateForgottenCollectionInfo();
-            updateLearningStatsInfo();
             selectBook('cet4');
         }
 
@@ -1444,8 +1496,19 @@
             document.getElementById('list-page').classList.add('hidden');
             document.getElementById('preview-page').classList.add('hidden');
             document.getElementById('result-page').classList.add('hidden');
+            document.getElementById('stats-page').classList.add('hidden');
             document.getElementById('learn-page').classList.remove('hidden');
             showWord();
+        }
+
+        function showLearningStats() {
+            document.getElementById('setup-page').classList.add('hidden');
+            document.getElementById('list-page').classList.add('hidden');
+            document.getElementById('preview-page').classList.add('hidden');
+            document.getElementById('learn-page').classList.add('hidden');
+            document.getElementById('result-page').classList.add('hidden');
+            document.getElementById('stats-page').classList.remove('hidden');
+            updateLearningStatsInfo();
         }
 
         function captureReviewReturnState() {
@@ -1486,6 +1549,7 @@
                 document.getElementById('learn-page').classList.add('hidden');
                 document.getElementById('preview-page').classList.add('hidden');
                 document.getElementById('result-page').classList.add('hidden');
+                document.getElementById('stats-page').classList.add('hidden');
                 showListSelection();
                 return;
             }
@@ -1493,10 +1557,10 @@
             document.getElementById('list-page').classList.add('hidden');
             document.getElementById('preview-page').classList.add('hidden');
             document.getElementById('result-page').classList.add('hidden');
+            document.getElementById('stats-page').classList.add('hidden');
             document.getElementById('setup-page').classList.remove('hidden');
             updateWrongCollectionInfo();
             updateForgottenCollectionInfo();
-            updateLearningStatsInfo();
         }
 
         async function showWord() {
@@ -1797,9 +1861,9 @@
             }
             document.getElementById('learn-page').classList.add('hidden');
             document.getElementById('result-page').classList.remove('hidden');
+            document.getElementById('stats-page').classList.add('hidden');
             updateWrongCollectionInfo();
             updateForgottenCollectionInfo();
-            updateLearningStatsInfo();
             const total = app.score + app.wrongWords.length;
             const accuracy = total > 0 ? ((app.score / total) * 100).toFixed(1) : 0;
             document.getElementById('accuracy').textContent = accuracy + '%';
@@ -1809,8 +1873,7 @@
             app.wrongWords.slice(0, 20).forEach(w => {
                 const div = document.createElement('div');
                 div.className = 'wrong-word';
-                const stats = getWordStats(w);
-                div.textContent = `${w.word} - ${w.meaning}（累计错误 ${stats.wrongCount || 0} 次，累计遗忘 ${stats.forgottenCount || 0} 次）`;
+                div.textContent = `${w.word} - ${w.meaning}`;
                 list.appendChild(div);
             });
             if (app.wrongWords.length === 0) {
