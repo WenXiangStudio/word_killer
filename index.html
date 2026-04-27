@@ -38,8 +38,9 @@
         .mode-switch { display: flex; gap: 10px; margin-bottom: 15px; }
         .mode-switch button { flex: 1; padding: 10px; border: none; border-radius: 8px; background: #f0f0f0; cursor: pointer; }
         .mode-switch button.active { background: #4A90D9; color: white; }
-        .choice-btn { background: white; border: 2px solid #e0e0e0; color: #333; }
-        .choice-btn:hover { border-color: #4A90D9; }
+        .choice-btn { background: white; border: 2px solid #e0e0e0; color: #333; outline: none; -webkit-tap-highlight-color: transparent; }
+        .choice-btn:hover, .choice-btn:focus { border-color: #e0e0e0; box-shadow: none; }
+        .choice-btn:active { border-color: #4A90D9; }
         .progress { display: flex; justify-content: space-between; font-size: 14px; color: #666; margin-bottom: 15px; }
         .result { text-align: center; }
         .result h2 { color: #4A90D9; font-size: 28px; margin-bottom: 20px; }
@@ -132,6 +133,7 @@
                 <div id="wrong-collection-info" class="resume-info">暂无错题收录</div>
                 <button class="btn btn-secondary" onclick="reviewForgottenWords()">🔥 加强训练遗忘词</button>
                 <div id="forgot-home-info" class="resume-info">暂无遗忘单词收录</div>
+                <div id="learning-stats-info" class="resume-info">累计错误 0 次 · 累计遗忘 0 次</div>
 
                 <div class="card">
                     <label>📤 或导入自定义词书（TXT / CSV / TSV / MD / JSON）</label>
@@ -219,6 +221,7 @@
                 <button class="btn btn-success" onclick="checkInput()">确认</button>
             </div>
             <div id="feedback-area"></div>
+            <button class="btn btn-secondary" id="previous-word-btn" onclick="previousWord()">上一个</button>
             <button class="btn btn-secondary" onclick="showSetup()">返回</button>
         </div>
 
@@ -256,14 +259,16 @@
             bookManifest: null,
             selectedListIdx: 0,
             previewWords: [],
-            listPageIdx: 0
+            listPageIdx: 0,
+            reviewReturnState: null
         };
 
         let currentBookKey = 'cet4';
-        const APP_VERSION = 'v2026.04.25-3';
+        const APP_VERSION = 'v2026.04.27-1';
         const WORD_APP_STATE_KEY = 'wordAppState';
         const WRONG_WORDS_COLLECTION_KEY = 'wrongWordsCollection:v1';
         const FORGOTTEN_WORDS_COLLECTION_KEY = 'forgottenWordsCollection:v1';
+        const WORD_STATS_KEY = 'wordStats:v1';
         const WORD_BOOKS_CACHE_KEY = 'wordBooksManifest:v1';
         const LEGACY_WORD_BOOKS_CACHE_KEYS = ['wordBooksCache', 'wordBooksCache:v2', 'wordBooksCache:v3'];
         const WORD_BOOKS_MANIFEST_PATH = 'books_manifest.json';
@@ -294,6 +299,47 @@
 
         function saveStoredCollection(storageKey, collection) {
             localStorage.setItem(storageKey, JSON.stringify(collection));
+        }
+
+        function getWordStatsCollection() {
+            return getStoredCollection(WORD_STATS_KEY);
+        }
+
+        function saveWordStatsCollection(collection) {
+            saveStoredCollection(WORD_STATS_KEY, collection);
+        }
+
+        function getWordStats(word) {
+            return getWordStatsCollection()[getWordCollectionKey(word)] || {};
+        }
+
+        function incrementWordStat(word, fieldName) {
+            if (!word || !word.word || !word.meaning) return;
+            const collection = getWordStatsCollection();
+            const key = getWordCollectionKey(word);
+            const existing = collection[key] || {};
+            collection[key] = {
+                word: word.word,
+                meaning: word.meaning,
+                phonetic: word.phonetic || existing.phonetic || '',
+                bookKey: word.bookKey || currentBookKey,
+                bookName: word.bookName || BOOK_NAMES[currentBookKey] || currentBookKey,
+                wrongCount: existing.wrongCount || 0,
+                forgottenCount: existing.forgottenCount || 0,
+                updatedAt: Date.now()
+            };
+            collection[key][fieldName] = (collection[key][fieldName] || 0) + 1;
+            saveWordStatsCollection(collection);
+            updateLearningStatsInfo();
+        }
+
+        function updateLearningStatsInfo() {
+            const info = document.getElementById('learning-stats-info');
+            if (!info) return;
+            const stats = Object.values(getWordStatsCollection());
+            const wrongTotal = stats.reduce((sum, item) => sum + (item.wrongCount || 0), 0);
+            const forgottenTotal = stats.reduce((sum, item) => sum + (item.forgottenCount || 0), 0);
+            info.textContent = `累计错误 ${wrongTotal} 次 · 累计遗忘 ${forgottenTotal} 次`;
         }
 
         function getWrongWordsCollection() {
@@ -361,6 +407,9 @@
 
             if (isForgotten) {
                 const existing = collection[key] || {};
+                if (!existing.word) {
+                    incrementWordStat(word, 'forgottenCount');
+                }
                 collection[key] = {
                     word: word.word,
                     meaning: word.meaning,
@@ -375,6 +424,7 @@
 
             saveForgottenWordsCollection(collection);
             updateForgottenCollectionInfo();
+            updateLearningStatsInfo();
         }
 
         function getCollectedWrongWords() {
@@ -398,6 +448,7 @@
 
         function recordWrongWord(word) {
             if (!word || !word.word || !word.meaning) return;
+            incrementWordStat(word, 'wrongCount');
 
             if (!app.wrongWords.some(item => item.word === word.word && item.meaning === word.meaning)) {
                 app.wrongWords.push(word);
@@ -485,6 +536,13 @@
             return app.bookManifest?.books?.[bookKey] || null;
         }
 
+        function isValidBookManifest(manifest) {
+            return ['cet4', 'cet6', 'kaoyan'].every(key => {
+                const entry = manifest?.books?.[key];
+                return entry && entry.path && Number(entry.count) > 0;
+            });
+        }
+
         function getCurrentBookWordCount() {
             if (app.words.length > 0) {
                 return app.words.length;
@@ -521,7 +579,7 @@
             }
 
             bookLoadPromises[bookKey] = (async () => {
-                const response = await fetch(manifestEntry.path);
+                const response = await fetch(manifestEntry.path, { cache: 'no-store' });
                 if (!response.ok) {
                     throw new Error(`词书加载失败：${response.status}`);
                 }
@@ -1070,21 +1128,29 @@
             const cached = localStorage.getItem(WORD_BOOKS_CACHE_KEY);
             if (cached) {
                 try {
-                    app.bookManifest = JSON.parse(cached);
-                    rebuildPhoneticCache();
-                    console.log('从缓存加载词书');
-                    showBookSelection();
-                    updateResumeButton();
-                    ensureBookLoaded('cet4').catch(() => {});
-                    return;
+                    const cachedManifest = JSON.parse(cached);
+                    if (isValidBookManifest(cachedManifest)) {
+                        app.bookManifest = cachedManifest;
+                        rebuildPhoneticCache();
+                        console.log('从缓存加载词书');
+                        showBookSelection();
+                        updateResumeButton();
+                        ensureBookLoaded('cet4').catch(() => {});
+                        return;
+                    }
+                    localStorage.removeItem(WORD_BOOKS_CACHE_KEY);
                 } catch (e) {
                     console.error('缓存解析失败');
+                    localStorage.removeItem(WORD_BOOKS_CACHE_KEY);
                 }
             }
 
             try {
-                const response = await fetch(WORD_BOOKS_MANIFEST_PATH);
+                const response = await fetch(WORD_BOOKS_MANIFEST_PATH, { cache: 'no-store' });
                 app.bookManifest = await response.json();
+                if (!isValidBookManifest(app.bookManifest)) {
+                    throw new Error('词书清单不完整');
+                }
                 LEGACY_WORD_BOOKS_CACHE_KEYS.forEach(key => localStorage.removeItem(key));
                 localStorage.setItem(WORD_BOOKS_CACHE_KEY, JSON.stringify(app.bookManifest));
                 rebuildPhoneticCache();
@@ -1103,6 +1169,7 @@
             document.getElementById('book-selection').classList.remove('hidden');
             updateWrongCollectionInfo();
             updateForgottenCollectionInfo();
+            updateLearningStatsInfo();
             selectBook('cet4');
         }
 
@@ -1381,7 +1448,47 @@
             showWord();
         }
 
+        function captureReviewReturnState() {
+            if (currentBookKey === 'forgotten-review' || currentBookKey === 'wrong-collection') {
+                return;
+            }
+            app.reviewReturnState = {
+                bookKey: currentBookKey,
+                words: [...app.words],
+                wordsPerList: app.wordsPerList,
+                selectedListIdx: app.selectedListIdx,
+                listPageIdx: app.listPageIdx
+            };
+        }
+
+        function restoreReviewReturnState() {
+            if (!app.reviewReturnState) return false;
+            const state = app.reviewReturnState;
+            currentBookKey = state.bookKey;
+            app.words = Array.isArray(state.words) ? [...state.words] : [];
+            app.wordsPerList = state.wordsPerList || app.wordsPerList;
+            app.selectedListIdx = state.selectedListIdx || 0;
+            app.listPageIdx = state.listPageIdx || 0;
+            document.getElementById('words-per-list').value = app.wordsPerList;
+            hydrateWordListPhonetics(app.words);
+            splitToLists();
+            if (BOOK_NAMES[currentBookKey]) {
+                updateBookButtons(currentBookKey);
+                updateSelectedBookInfo();
+            }
+            updateListCount();
+            app.reviewReturnState = null;
+            return true;
+        }
+
         function showSetup() {
+            if ((currentBookKey === 'forgotten-review' || currentBookKey === 'wrong-collection') && restoreReviewReturnState()) {
+                document.getElementById('learn-page').classList.add('hidden');
+                document.getElementById('preview-page').classList.add('hidden');
+                document.getElementById('result-page').classList.add('hidden');
+                showListSelection();
+                return;
+            }
             document.getElementById('learn-page').classList.add('hidden');
             document.getElementById('list-page').classList.add('hidden');
             document.getElementById('preview-page').classList.add('hidden');
@@ -1389,6 +1496,7 @@
             document.getElementById('setup-page').classList.remove('hidden');
             updateWrongCollectionInfo();
             updateForgottenCollectionInfo();
+            updateLearningStatsInfo();
         }
 
         async function showWord() {
@@ -1398,17 +1506,14 @@
             }
             const list = app.allLists[app.currentListIdx];
             if (app.currentWordIdx >= list.length) {
-                app.currentListIdx++;
-                app.currentWordIdx = 0;
-                if (app.currentListIdx >= app.allLists.length) {
-                    showResult();
-                    return;
-                }
+                showResult();
+                return;
             }
             const word = app.allLists[app.currentListIdx][app.currentWordIdx];
             document.getElementById('list-progress').textContent = `List ${app.currentListIdx + 1}/${app.allLists.length}`;
             document.getElementById('word-progress').textContent = `${app.currentWordIdx + 1}/${app.allLists[app.currentListIdx].length}`;
             document.getElementById('score-display').textContent = `正确: ${app.score}`;
+            document.getElementById('previous-word-btn').disabled = app.currentWordIdx <= 0;
             document.getElementById('word-text').textContent = word.word;
             showPronunciationFallback(getPronunciationAudioUrl(word.word));
             
@@ -1598,6 +1703,10 @@
             return choices.sort(() => Math.random() - 0.5);
         }
 
+        function renderCorrectFeedback(word) {
+            return `<p style="color:#5cb85c;font-size:18px;">✓ 正确！</p><p style="color:#666;font-size:14px;line-height:1.5;">完整意思：${word.meaning}</p>`;
+        }
+
         function checkChoice(choice, word) {
             if (app.choiceLocked) return;
             const feedback = document.getElementById('feedback-area');
@@ -1605,8 +1714,8 @@
                 app.score++;
                 app.currentWordIdx++;
                 persistAppState();
-                feedback.innerHTML = '<p style="color:#5cb85c;font-size:18px;">✓ 正确！</p>';
-                setTimeout(showWord, 800);
+                feedback.innerHTML = renderCorrectFeedback(word);
+                setTimeout(showWord, 1200);
             } else {
                 app.choiceLocked = true;
                 recordWrongWord(word);
@@ -1633,8 +1742,8 @@
                 app.score++;
                 app.currentWordIdx++;
                 persistAppState();
-                feedback.innerHTML = '<p style="color:#5cb85c;font-size:18px;">✓ 正确！</p>';
-                setTimeout(showWord, 800);
+                feedback.innerHTML = renderCorrectFeedback(word);
+                setTimeout(showWord, 1200);
             } else {
                 recordWrongWord(word);
                 persistAppState();
@@ -1671,6 +1780,16 @@
             showWord();
         }
 
+        function previousWord() {
+            if (app.currentWordIdx <= 0) {
+                return;
+            }
+            app.choiceLocked = false;
+            app.currentWordIdx--;
+            persistAppState();
+            showWord();
+        }
+
         function showResult() {
             clearAppState();
             if (currentBookKey === 'forgotten-review' && app.wrongWords.length === 0) {
@@ -1680,6 +1799,7 @@
             document.getElementById('result-page').classList.remove('hidden');
             updateWrongCollectionInfo();
             updateForgottenCollectionInfo();
+            updateLearningStatsInfo();
             const total = app.score + app.wrongWords.length;
             const accuracy = total > 0 ? ((app.score / total) * 100).toFixed(1) : 0;
             document.getElementById('accuracy').textContent = accuracy + '%';
@@ -1689,7 +1809,8 @@
             app.wrongWords.slice(0, 20).forEach(w => {
                 const div = document.createElement('div');
                 div.className = 'wrong-word';
-                div.textContent = `${w.word} - ${w.meaning}`;
+                const stats = getWordStats(w);
+                div.textContent = `${w.word} - ${w.meaning}（累计错误 ${stats.wrongCount || 0} 次，累计遗忘 ${stats.forgottenCount || 0} 次）`;
                 list.appendChild(div);
             });
             if (app.wrongWords.length === 0) {
@@ -1717,6 +1838,7 @@
                 return;
             }
 
+            captureReviewReturnState();
             currentBookKey = 'wrong-collection';
             app.words = words.map(item => ({
                 word: item.word,
@@ -1744,6 +1866,7 @@
                 return;
             }
 
+            captureReviewReturnState();
             currentBookKey = 'forgotten-review';
             app.words = words.map(item => ({
                 word: item.word,
