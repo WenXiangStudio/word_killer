@@ -15,8 +15,8 @@
     <script src="phonetic_db.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; min-height: 100vh; }
-        .container { max-width: 500px; margin: 0 auto; padding: 15px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f3f7fb; min-height: 100vh; }
+        .container { max-width: 500px; margin: 0 auto; padding: 15px 15px 88px; }
         .header { text-align: center; padding: 20px 0; }
         .header h1 { color: #4A90D9; font-size: 24px; }
         .header p { color: #666; font-size: 14px; margin-top: 8px; }
@@ -32,6 +32,14 @@
         label { display: block; margin-bottom: 5px; color: #666; font-size: 14px; }
         .status-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 12px; }
         .status-pill { padding: 6px 10px; border-radius: 999px; background: #e8f1fb; color: #2d69a5; font-size: 12px; }
+        .home-section { display: none; }
+        .home-section.active { display: block; }
+        .home-section-title { color: #333; font-size: 18px; margin-bottom: 12px; }
+        .bottom-nav { position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; max-width: 500px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); background: rgba(255,255,255,0.96); border-top: 1px solid #e9edf3; box-shadow: 0 -8px 24px rgba(0,0,0,0.08); z-index: 900; }
+        .bottom-nav button { border: none; background: transparent; color: #777; border-radius: 12px; padding: 8px 4px; font-size: 12px; cursor: pointer; }
+        .bottom-nav button.active { background: #e8f1fb; color: #2d69a5; font-weight: 700; }
+        .bottom-nav .tab-icon { display: block; font-size: 18px; margin-bottom: 2px; }
+        .app-card-note { color: #888; font-size: 13px; line-height: 1.6; margin-top: -2px; margin-bottom: 12px; }
         .word-display { text-align: center; padding: 30px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white; margin-bottom: 20px; }
         .word-display h2 { font-size: 32px; margin-bottom: 10px; }
         .word-display .phonetic { font-size: 18px; opacity: 0.9; margin-top: 5px; }
@@ -96,7 +104,7 @@
         .version-badge {
             position: fixed;
             right: 12px;
-            bottom: 12px;
+            bottom: calc(78px + env(safe-area-inset-bottom));
             padding: 8px 10px;
             border-radius: 999px;
             background: rgba(31, 47, 70, 0.88);
@@ -128,47 +136,70 @@
             </div>
 
             <div id="book-selection" class="hidden">
-                <div class="card">
-                    <label>📖 选择词书</label>
-                    <div style="display:flex;gap:10px;margin-bottom:15px;">
-                        <button class="btn btn-primary" onclick="selectBook('cet4')" id="btn-cet4" style="flex:1;">四级词汇</button>
-                        <button class="btn btn-secondary" onclick="selectBook('cet6')" id="btn-cet6" style="flex:1;">六级词汇</button>
-                        <button class="btn btn-secondary" onclick="selectBook('kaoyan')" id="btn-kaoyan" style="flex:1;">考研词汇</button>
+                <section class="home-section active" id="home-tab-study">
+                    <div class="card">
+                        <h2 class="home-section-title">开始学习</h2>
+                        <label>📖 选择词书</label>
+                        <div style="display:flex;gap:10px;margin-bottom:15px;">
+                            <button class="btn btn-primary" onclick="selectBook('cet4')" id="btn-cet4" style="flex:1;">四级词汇</button>
+                            <button class="btn btn-secondary" onclick="selectBook('cet6')" id="btn-cet6" style="flex:1;">六级词汇</button>
+                            <button class="btn btn-secondary" onclick="selectBook('kaoyan')" id="btn-kaoyan" style="flex:1;">考研词汇</button>
+                        </div>
+                        <div id="book-info" style="text-align:center;color:#666;font-size:14px;">请选择词书</div>
                     </div>
-                    <div id="book-info" style="text-align:center;color:#666;font-size:14px;">请选择词书</div>
-                </div>
 
-                <button class="btn btn-orange" onclick="reviewCollectedWrongWords()">📝 复习错题收录</button>
-                <div id="wrong-collection-info" class="resume-info">暂无错题收录</div>
-                <button class="btn btn-secondary" onclick="reviewForgottenWords()">🔥 加强训练遗忘词</button>
-                <div id="forgot-home-info" class="resume-info">暂无遗忘单词收录</div>
-                <button class="btn btn-primary" onclick="showLearningStats()">📊 学习统计</button>
+                    <div class="card">
+                        <label>🔢 每个List词数</label>
+                        <input type="number" id="words-per-list" value="50" min="5" max="200">
+                        <div id="list-count" style="text-align:center;color:#666;margin:10px 0;">将分为 0 个List</div>
+                    </div>
 
-                <div class="card">
-                    <label>📤 或导入自定义词书（TXT / CSV / TSV / MD / JSON）</label>
-                    <input type="file" id="file-input" accept=".txt,.csv,.tsv,.md,.list,.json" style="display:none">
-                    <button class="btn btn-secondary" onclick="document.getElementById('file-input').click()">选择文件</button>
-                    <div style="text-align:center;color:#999;font-size:12px;margin-top:8px;">支持：单词[TAB]释义、单词,释义、单词 | 释义、单词 /音标/ 释义、JSON 数组等</div>
-                    <div id="file-info" class="file-info"></div>
-                </div>
+                    <button class="btn btn-success" onclick="showListSelection()">🚀 开始学习</button>
+                    <button class="btn btn-orange" onclick="continueLearning()" id="continue-btn" disabled>📌 继续上次</button>
+                    <div id="resume-info" class="resume-info">暂无可继续的学习记录</div>
+                </section>
 
-                <div class="card">
-                    <label>🔢 每个List词数</label>
-                    <input type="number" id="words-per-list" value="50" min="5" max="200">
-                    <div id="list-count" style="text-align:center;color:#666;margin:10px 0;">将分为 0 个List</div>
-                </div>
+                <section class="home-section" id="home-tab-review">
+                    <div class="card">
+                        <h2 class="home-section-title">复习中心</h2>
+                        <p class="app-card-note">错题、遗忘词和统计集中在这里，不再挤在学习首页。</p>
+                        <button class="btn btn-orange" onclick="reviewCollectedWrongWords()">📝 复习错题收录</button>
+                        <div id="wrong-collection-info" class="resume-info">暂无错题收录</div>
+                        <button class="btn btn-secondary" onclick="reviewForgottenWords()">🔥 加强训练遗忘词</button>
+                        <div id="forgot-home-info" class="resume-info">暂无遗忘单词收录</div>
+                        <button class="btn btn-primary" onclick="showLearningStats()">📊 学习统计</button>
+                    </div>
+                </section>
 
-                <button class="btn btn-success" onclick="showListSelection()">🚀 开始学习</button>
-                <button class="btn btn-orange" onclick="continueLearning()" id="continue-btn" disabled>📌 继续上次</button>
-                <div id="resume-info" class="resume-info">暂无可继续的学习记录</div>
-            </div>
+                <section class="home-section" id="home-tab-import">
+                    <div class="card">
+                        <h2 class="home-section-title">导入词书</h2>
+                        <label>📤 自定义词书（TXT / CSV / TSV / MD / JSON）</label>
+                        <input type="file" id="file-input" accept=".txt,.csv,.tsv,.md,.list,.json" style="display:none">
+                        <button class="btn btn-secondary" onclick="document.getElementById('file-input').click()">选择文件</button>
+                        <div style="text-align:center;color:#999;font-size:12px;margin-top:8px;">支持：单词[TAB]释义、单词,释义、单词 | 释义、单词 /音标/ 释义、JSON 数组等</div>
+                        <div id="file-info" class="file-info"></div>
+                    </div>
+                </section>
 
-            <div class="card">
-                <label>📱 iPhone 使用提示</label>
-                <div class="tip-list">
-                    <p>在 Safari 打开后，点“分享” → “添加到主屏幕”，可像 App 一样使用。</p>
-                    <p>首次联网加载词书后，后续可直接从桌面继续打开。</p>
-                </div>
+                <section class="home-section" id="home-tab-help">
+                    <div class="card">
+                        <h2 class="home-section-title">使用帮助</h2>
+                        <label>📱 iPhone 使用提示</label>
+                        <div class="tip-list">
+                            <p>在 Safari 打开后，点“分享” → “添加到主屏幕”，可像 App 一样使用。</p>
+                            <p>首次联网加载词书后，后续可直接从桌面继续打开。</p>
+                            <p>如果遇到旧版本缓存，重新打开 App 或访问 reset.html 清理缓存。</p>
+                        </div>
+                    </div>
+                </section>
+
+                <nav class="bottom-nav" id="home-tab-nav" aria-label="首页导航">
+                    <button class="active" type="button" onclick="switchHomeTab('study')" data-home-tab="study"><span class="tab-icon">📚</span>学习</button>
+                    <button type="button" onclick="switchHomeTab('review')" data-home-tab="review"><span class="tab-icon">📝</span>复习</button>
+                    <button type="button" onclick="switchHomeTab('import')" data-home-tab="import"><span class="tab-icon">📤</span>导入</button>
+                    <button type="button" onclick="switchHomeTab('help')" data-home-tab="help"><span class="tab-icon">💡</span>帮助</button>
+                </nav>
             </div>
         </div>
 
@@ -288,11 +319,12 @@
             selectedListIdx: 0,
             previewWords: [],
             listPageIdx: 0,
-            reviewReturnState: null
+            reviewReturnState: null,
+            homeTab: 'study'
         };
 
         let currentBookKey = 'cet4';
-        const APP_VERSION = 'v2026.04.27-2';
+        const APP_VERSION = 'v2026.04.27-3';
         const WORD_APP_STATE_KEY = 'wordAppState';
         const WRONG_WORDS_COLLECTION_KEY = 'wrongWordsCollection:v1';
         const FORGOTTEN_WORDS_COLLECTION_KEY = 'forgottenWordsCollection:v1';
@@ -790,6 +822,7 @@
             document.getElementById('book-info').textContent = `已导入自定义词书（${app.words.length}词）`;
             document.getElementById('file-info').textContent = label || `已加载 ${app.words.length} 个单词`;
             updateListCount();
+            switchHomeTab('study');
         }
 
         function persistAppState() {
@@ -1222,7 +1255,18 @@
             document.getElementById('book-selection').classList.remove('hidden');
             updateWrongCollectionInfo();
             updateForgottenCollectionInfo();
+            switchHomeTab(app.homeTab || 'study');
             selectBook('cet4');
+        }
+
+        function switchHomeTab(tabName) {
+            app.homeTab = tabName;
+            document.querySelectorAll('.home-section').forEach(section => {
+                section.classList.toggle('active', section.id === `home-tab-${tabName}`);
+            });
+            document.querySelectorAll('[data-home-tab]').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.homeTab === tabName);
+            });
         }
 
         function updateListCount() {
