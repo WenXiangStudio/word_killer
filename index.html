@@ -163,9 +163,9 @@
                     <div class="card">
                         <h2 class="home-section-title">复习中心</h2>
                         <p class="app-card-note">错题、遗忘词和统计集中在这里，不再挤在学习首页。</p>
-                        <button class="btn btn-orange" onclick="reviewCollectedWrongWords()">📝 复习错题收录</button>
+                        <button class="btn btn-orange" onclick="reviewCollectedWrongWords('review-home')">📝 复习错题收录</button>
                         <div id="wrong-collection-info" class="resume-info">暂无错题收录</div>
-                        <button class="btn btn-secondary" onclick="reviewForgottenWords()">🔥 加强训练遗忘词</button>
+                        <button class="btn btn-secondary" onclick="reviewForgottenWords('review-home')">🔥 加强训练遗忘词</button>
                         <div id="forgot-home-info" class="resume-info">暂无遗忘单词收录</div>
                         <button class="btn btn-primary" onclick="showLearningStats()">📊 学习统计</button>
                     </div>
@@ -324,11 +324,12 @@
         };
 
         let currentBookKey = 'cet4';
-        const APP_VERSION = 'v2026.04.27-3';
+        const APP_VERSION = 'v2026.05.05-1';
         const WORD_APP_STATE_KEY = 'wordAppState';
         const WRONG_WORDS_COLLECTION_KEY = 'wrongWordsCollection:v1';
         const FORGOTTEN_WORDS_COLLECTION_KEY = 'forgottenWordsCollection:v1';
         const WORD_STATS_KEY = 'wordStats:v1';
+        const WORDS_PER_LIST_KEY = 'wordsPerList:v1';
         const WORD_BOOKS_CACHE_KEY = 'wordBooksManifest:v1';
         const LEGACY_WORD_BOOKS_CACHE_KEYS = ['wordBooksCache', 'wordBooksCache:v2', 'wordBooksCache:v3'];
         const WORD_BOOKS_MANIFEST_PATH = 'books_manifest.json';
@@ -1269,13 +1270,38 @@
             });
         }
 
-        function updateListCount() {
-            app.wordsPerList = parseInt(document.getElementById('words-per-list').value) || 50;
+        function clampWordsPerList(value) {
+            const parsed = parseInt(value, 10);
+            if (!Number.isFinite(parsed)) return 50;
+            return Math.min(200, Math.max(5, parsed));
+        }
+
+        function getWordsPerListInputValue() {
+            return clampWordsPerList(document.getElementById('words-per-list').value);
+        }
+
+        function saveWordsPerListPreference(value) {
+            localStorage.setItem(WORDS_PER_LIST_KEY, String(clampWordsPerList(value)));
+        }
+
+        function loadWordsPerListPreference() {
+            const storedValue = localStorage.getItem(WORDS_PER_LIST_KEY);
+            if (!storedValue) return;
+
+            app.wordsPerList = clampWordsPerList(storedValue);
+            document.getElementById('words-per-list').value = app.wordsPerList;
+        }
+
+        function updateListCount(options = {}) {
+            app.wordsPerList = getWordsPerListInputValue();
+            if (options.persist) {
+                saveWordsPerListPreference(app.wordsPerList);
+            }
             const count = Math.ceil(getCurrentBookWordCount() / app.wordsPerList) || 0;
             document.getElementById('list-count').textContent = `将分为 ${count} 个List`;
         }
 
-        document.getElementById('words-per-list').addEventListener('input', updateListCount);
+        document.getElementById('words-per-list').addEventListener('input', () => updateListCount({persist: true}));
 
         document.getElementById('file-input').addEventListener('change', async function(e) {
             const file = e.target.files[0];
@@ -1412,7 +1438,8 @@
                 alert('请先选择或导入词书');
                 return;
             }
-            app.wordsPerList = parseInt(document.getElementById('words-per-list').value) || 50;
+            app.wordsPerList = getWordsPerListInputValue();
+            saveWordsPerListPreference(app.wordsPerList);
             splitToLists();
             app.listPageIdx = Math.floor((app.selectedListIdx || 0) / LISTS_PER_PAGE);
             
@@ -1498,8 +1525,9 @@
             if (saved) {
                 try {
                     const state = JSON.parse(saved);
-                    app.wordsPerList = state.wordsPerList || 50;
+                    app.wordsPerList = clampWordsPerList(state.wordsPerList || 50);
                     document.getElementById('words-per-list').value = app.wordsPerList;
+                    saveWordsPerListPreference(app.wordsPerList);
                     app.words = Array.isArray(state.words) ? state.words : [];
                     currentBookKey = state.currentBook || null;
                     hydrateWordListPhonetics(app.words);
@@ -1555,11 +1583,12 @@
             updateLearningStatsInfo();
         }
 
-        function captureReviewReturnState() {
+        function captureReviewReturnState(returnTarget = 'list') {
             if (currentBookKey === 'forgotten-review' || currentBookKey === 'wrong-collection') {
                 return;
             }
             app.reviewReturnState = {
+                returnTarget,
                 bookKey: currentBookKey,
                 words: [...app.words],
                 wordsPerList: app.wordsPerList,
@@ -1571,9 +1600,10 @@
         function restoreReviewReturnState() {
             if (!app.reviewReturnState) return false;
             const state = app.reviewReturnState;
+            const returnTarget = state.returnTarget || 'list';
             currentBookKey = state.bookKey;
             app.words = Array.isArray(state.words) ? [...state.words] : [];
-            app.wordsPerList = state.wordsPerList || app.wordsPerList;
+            app.wordsPerList = clampWordsPerList(state.wordsPerList || app.wordsPerList);
             app.selectedListIdx = state.selectedListIdx || 0;
             app.listPageIdx = state.listPageIdx || 0;
             document.getElementById('words-per-list').value = app.wordsPerList;
@@ -1585,15 +1615,29 @@
             }
             updateListCount();
             app.reviewReturnState = null;
-            return true;
+            return returnTarget;
         }
 
         function showSetup() {
-            if ((currentBookKey === 'forgotten-review' || currentBookKey === 'wrong-collection') && restoreReviewReturnState()) {
+            const reviewReturnTarget = (currentBookKey === 'forgotten-review' || currentBookKey === 'wrong-collection')
+                ? restoreReviewReturnState()
+                : false;
+
+            if (reviewReturnTarget) {
                 document.getElementById('learn-page').classList.add('hidden');
+                document.getElementById('list-page').classList.add('hidden');
                 document.getElementById('preview-page').classList.add('hidden');
                 document.getElementById('result-page').classList.add('hidden');
                 document.getElementById('stats-page').classList.add('hidden');
+
+                if (reviewReturnTarget === 'review-home') {
+                    document.getElementById('setup-page').classList.remove('hidden');
+                    switchHomeTab('review');
+                    updateWrongCollectionInfo();
+                    updateForgottenCollectionInfo();
+                    return;
+                }
+
                 showListSelection();
                 return;
             }
@@ -1938,14 +1982,14 @@
             showLearnPage();
         }
 
-        function reviewCollectedWrongWords() {
+        function reviewCollectedWrongWords(returnTarget = 'list') {
             const words = getCollectedWrongWords();
             if (words.length === 0) {
                 alert('暂无错题收录');
                 return;
             }
 
-            captureReviewReturnState();
+            captureReviewReturnState(returnTarget);
             currentBookKey = 'wrong-collection';
             app.words = words.map(item => ({
                 word: item.word,
@@ -1954,7 +1998,8 @@
                 bookKey: item.bookKey,
                 bookName: item.bookName
             }));
-            app.wordsPerList = parseInt(document.getElementById('words-per-list').value) || 50;
+            app.wordsPerList = getWordsPerListInputValue();
+            saveWordsPerListPreference(app.wordsPerList);
             hydrateWordListPhonetics(app.words);
             splitToLists();
             app.currentListIdx = 0;
@@ -1966,14 +2011,14 @@
             showLearnPage();
         }
 
-        function reviewForgottenWords() {
+        function reviewForgottenWords(returnTarget = 'list') {
             const words = getCollectedForgottenWords();
             if (words.length === 0) {
                 alert('暂无遗忘单词收录');
                 return;
             }
 
-            captureReviewReturnState();
+            captureReviewReturnState(returnTarget);
             currentBookKey = 'forgotten-review';
             app.words = words.map(item => ({
                 word: item.word,
@@ -1982,7 +2027,8 @@
                 bookKey: item.bookKey,
                 bookName: item.bookName
             }));
-            app.wordsPerList = parseInt(document.getElementById('words-per-list').value) || 50;
+            app.wordsPerList = getWordsPerListInputValue();
+            saveWordsPerListPreference(app.wordsPerList);
             hydrateWordListPhonetics(app.words);
             splitToLists();
             app.currentListIdx = 0;
@@ -2002,6 +2048,7 @@
 
         window.addEventListener('load', () => {
             updateVersionBadge();
+            loadWordsPerListPreference();
             if ('speechSynthesis' in window) {
                 refreshEnglishVoices();
                 window.speechSynthesis.onvoiceschanged = refreshEnglishVoices;
