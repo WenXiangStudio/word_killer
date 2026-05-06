@@ -3,6 +3,7 @@ __pycache__/
 *.log
 .DS_Store
 Thumbs.db
+.word_source_cache/
 
 *_raw.txt
 icon.svg
