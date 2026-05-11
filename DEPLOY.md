@@ -45,6 +45,5 @@ python server.py
 
 ## 说明
 
-- `word_books.json` 是线上词书数据源
 - `sw.js` 负责离线缓存
 - `manifest.json` 和图标文件负责桌面安装体验

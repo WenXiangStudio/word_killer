@@ -1,8 +1,10 @@
-const CACHE_NAME = 'wordkiller-v20';
+const CACHE_NAME = 'wordkiller-v21';
 const APP_SHELL = [
   new URL('./', self.location).toString(),
   new URL('index.html', self.location).toString(),
   new URL('reset.html', self.location).toString(),
+  new URL('style.css', self.location).toString(),
+  new URL('app.js', self.location).toString(),
   new URL('books_manifest.json', self.location).toString(),
   new URL('phonetic_db.js', self.location).toString(),
   new URL('manifest.json', self.location).toString(),
