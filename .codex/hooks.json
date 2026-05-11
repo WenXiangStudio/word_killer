@@ -1,0 +1,35 @@
+{
+    "hooks":  {
+                  "SessionStart":  [
+                                       {
+                                           "matcher":  "startup|resume",
+                                           "hooks":  [
+                                                         {
+                                                             "type":  "command",
+                                                             "command":  "python \"D:\\wordkiller\\word_killer\\.agents\\hooks\\session_start.py\""
+                                                         }
+                                                     ]
+                                       }
+                                   ],
+                  "UserPromptSubmit":  [
+                                           {
+                                               "hooks":  [
+                                                             {
+                                                                 "type":  "command",
+                                                                 "command":  "python \"D:\\wordkiller\\word_killer\\.agents\\hooks\\prompt_router.py\""
+                                                             }
+                                                         ]
+                                           }
+                                       ],
+                  "Stop":  [
+                               {
+                                   "hooks":  [
+                                                 {
+                                                     "type":  "command",
+                                                     "command":  "python \"D:\\wordkiller\\word_killer\\.agents\\hooks\\stop_check.py\""
+                                                 }
+                                             ]
+                               }
+                           ]
+              }
+}

@@ -1,0 +1,47 @@
+{
+    "hooks":  {
+                  "SessionStart":  [
+                                       {
+                                           "matcher":  "startup|resume|compact",
+                                           "hooks":  [
+                                                         {
+                                                             "type":  "command",
+                                                             "command":  "python \"$env:CLAUDE_PROJECT_DIR\\.agents\\hooks\\session_start.py\""
+                                                         }
+                                                     ]
+                                       }
+                                   ],
+                  "UserPromptSubmit":  [
+                                           {
+                                               "hooks":  [
+                                                             {
+                                                                 "type":  "command",
+                                                                 "command":  "python \"$env:CLAUDE_PROJECT_DIR\\.agents\\hooks\\prompt_router.py\""
+                                                             }
+                                                         ]
+                                           }
+                                       ],
+                  "Stop":  [
+                               {
+                                   "hooks":  [
+                                                 {
+                                                     "type":  "command",
+                                                     "command":  "python \"$env:CLAUDE_PROJECT_DIR\\.agents\\hooks\\stop_check.py\""
+                                                 }
+                                             ]
+                               }
+                           ],
+                  "PostCompact":  [
+                                      {
+                                          "matcher":  "manual|auto",
+                                          "hooks":  [
+                                                        {
+                                                            "type":  "command",
+                                                            "command":  "python \"$env:CLAUDE_PROJECT_DIR\\.agents\\hooks\\post_compact.py\""
+                                                        }
+                                                    ]
+                                      }
+                                  ]
+              },
+    "shell":  "powershell"
+}
