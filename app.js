@@ -19,7 +19,7 @@ let app = {
 };
 
 let currentBookKey = 'cet4';
-const APP_VERSION = 'v2026.05.06-2';
+const APP_VERSION = 'v2026.05.12-1';
 const WORD_APP_STATE_KEY = 'wordAppState';
 const WRONG_WORDS_COLLECTION_KEY = 'wrongWordsCollection:v1';
 const FORGOTTEN_WORDS_COLLECTION_KEY = 'forgottenWordsCollection:v1';
@@ -157,7 +157,7 @@ function updateForgottenCollectionInfo() {
 }
 
 function togglePreviewMeaningMask(enabled) {
-    document.querySelectorAll('#preview-words .pw-cn').forEach(el => {
+    document.querySelectorAll('#preview-words .preview-secret').forEach(el => {
         el.classList.toggle('masked', enabled && el.dataset.revealed !== 'true');
     });
 }
@@ -175,6 +175,140 @@ function shuffledWords(words) {
         [result[i], result[j]] = [result[j], result[i]];
     }
     return result;
+}
+
+function escapeHtml(value) {
+    return String(value || '').replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[char]));
+}
+
+function getStableIndex(text, max) {
+    if (!max) return 0;
+    const value = String(text || '');
+    let total = 0;
+    for (let i = 0; i < value.length; i++) {
+        total = (total + value.charCodeAt(i) * (i + 1)) % 9973;
+    }
+    return total % max;
+}
+
+function getPrimaryMeaning(meaning) {
+    const text = cleanImportedField(meaning)
+        .replace(/\b(?:n|v|vt|vi|adj|adv|prep|pron|num|int|conj|art|aux|phr)\.\s*/gi, '')
+        .replace(/[()（）【】[\]]/g, ' ')
+        .trim();
+    const parts = text
+        .split(/[;；,，、\/]|(?:\s{2,})/)
+        .map(part => part.trim())
+        .filter(Boolean);
+    const chinesePart = parts.find(part => /[一-鿿]/.test(part)) || text;
+    return chinesePart.replace(/^[的地得\s]+|[的地得\s]+$/g, '').slice(0, 12) || '这个意思';
+}
+
+function getMeaningPartOfSpeech(meaning) {
+    const match = cleanImportedField(meaning).match(/\b(n|v|vt|vi|adj|adv|prep|pron|num|int|conj|art|aux|phr)\./i);
+    return match ? match[1].toLowerCase() : '';
+}
+
+function highlightText(text, target, className) {
+    const source = String(text || '');
+    const needle = String(target || '').trim();
+    if (!needle) return escapeHtml(source);
+
+    const lowerSource = source.toLowerCase();
+    const lowerNeedle = needle.toLowerCase();
+    const index = lowerSource.indexOf(lowerNeedle);
+    if (index < 0) return escapeHtml(source);
+
+    return [
+        escapeHtml(source.slice(0, index)),
+        `<mark class="${className}">`,
+        escapeHtml(source.slice(index, index + needle.length)),
+        '</mark>',
+        escapeHtml(source.slice(index + needle.length))
+    ].join('');
+}
+
+function createUsageExample(word) {
+    const term = cleanImportedField(word.word);
+    const meaning = getPrimaryMeaning(word.meaning);
+    const pos = getMeaningPartOfSpeech(word.meaning);
+    const lowerTerm = term.toLowerCase();
+    let templates;
+
+    if (/允许|准许|同意/.test(word.meaning)) {
+        templates = [{
+            en: `The teacher will ${term} students to discuss the answer in pairs.`,
+            zh: `老师会允许学生两人一组讨论答案。`
+        }];
+    } else if (/关|闭|结束/.test(word.meaning) || lowerTerm === 'close') {
+        templates = [{
+            en: `Please ${term} the door before the meeting starts.`,
+            zh: `会议开始前，请把门关上。`
+        }];
+    } else if (/^(vt|vi|v)$/.test(pos)) {
+        templates = [
+            {
+                en: `At work, the team can ${term} this step before moving on.`,
+                zh: `工作中，团队可以先${meaning}这一步，再继续。`
+            },
+            {
+                en: `In a real conversation, people may ${term} when they need a clear result.`,
+                zh: `真实对话里，人们需要明确结果时可能会${meaning}。`
+            }
+        ];
+    } else if (pos === 'adj') {
+        templates = [
+            {
+                en: `The plan felt ${term} after several rounds of changes.`,
+                zh: `几轮修改后，这个方案显得有些${meaning}。`
+            },
+            {
+                en: `A ${term} response can make the customer feel more confident.`,
+                zh: `一个${meaning}的回应能让客户更有信心。`
+            }
+        ];
+    } else if (pos === 'adv') {
+        templates = [{
+            en: `She answered ${term} during the customer call.`,
+            zh: `客户来电时，她${meaning}地回答。`
+        }];
+    } else if (pos === 'pron' && lowerTerm === 'none') {
+        templates = [{
+            en: `None of the guests forgot to sign in at the front desk.`,
+            zh: `在前台签到时，没有人忘记登记。`
+        }];
+    } else if (pos === 'n') {
+        templates = [
+            {
+                en: `I noticed the ${term} on my way to work this morning.`,
+                zh: `今天早上上班路上，我注意到了这个${meaning}。`
+            },
+            {
+                en: `The ${term} became important during the team discussion.`,
+                zh: `团队讨论时，这个${meaning}变得很重要。`
+            }
+        ];
+    } else {
+        templates = [{
+            en: `In this situation, "${term}" is the key word to understand.`,
+            zh: `在这个场景中，${meaning}是理解这个词的关键。`
+        }];
+    }
+
+    return {
+        ...templates[getStableIndex(term, templates.length)],
+        meaning
+    };
+}
+
+function renderHighlightedMeaning(meaning) {
+    return highlightText(meaning, getPrimaryMeaning(meaning), 'meaning-highlight');
 }
 
 function isForgottenWord(word) {
@@ -1160,18 +1294,24 @@ async function showListPreview(listIdx) {
     list.forEach((word, idx) => {
         const phoneticId = `ph-${listIdx}-${idx}`;
         const phonetic = hydrateWordPhonetic(word);
+        const example = createUsageExample(word);
         const div = document.createElement('div');
         div.className = 'preview-word';
         div.innerHTML = `
             <div class="preview-main">
-                <button class="preview-speak-btn" type="button" aria-label="播放 ${word.word} 的读音">🔊</button>
+                <button class="preview-speak-btn" type="button" aria-label="播放 ${escapeHtml(word.word)} 的读音">🔊</button>
                 <div>
-                    <div class="pw-en">${word.word}</div>
-                    <div class="pw-phonetic" id="${phoneticId}">${phonetic || '...'}</div>
+                    <div class="pw-en">${escapeHtml(word.word)}</div>
+                    <div class="pw-phonetic" id="${phoneticId}">${escapeHtml(phonetic || '...')}</div>
                 </div>
             </div>
             <button class="forgot-toggle" type="button"></button>
-            <div class="pw-cn${shouldMaskMeanings ? ' masked' : ''}">${word.meaning}</div>
+            <div class="pw-cn preview-secret${shouldMaskMeanings ? ' masked' : ''}">${renderHighlightedMeaning(word.meaning)}</div>
+            <div class="pw-example">
+                <div class="pw-example-label">场景例句</div>
+                <div class="pw-example-en">${highlightText(example.en, word.word, 'word-highlight')}</div>
+                <div class="pw-example-zh preview-secret${shouldMaskMeanings ? ' masked' : ''}">${highlightText(example.zh, example.meaning, 'meaning-highlight')}</div>
+            </div>
         `;
         div.querySelector('.preview-speak-btn').onclick = () => speakSpecificWord(word);
         const forgotButton = div.querySelector('.forgot-toggle');
@@ -1189,7 +1329,9 @@ async function showListPreview(listIdx) {
             }
         };
         renderForgotButton();
-        div.querySelector('.pw-cn').onclick = event => revealPreviewMeaning(event.currentTarget);
+        div.querySelectorAll('.preview-secret').forEach(el => {
+            el.onclick = event => revealPreviewMeaning(event.currentTarget);
+        });
         container.appendChild(div);
     });
 
