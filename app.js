@@ -19,7 +19,7 @@ let app = {
 };
 
 let currentBookKey = 'cet4';
-const APP_VERSION = 'v2026.05.12-1';
+const APP_VERSION = 'v2026.05.12-2';
 const WORD_APP_STATE_KEY = 'wordAppState';
 const WRONG_WORDS_COLLECTION_KEY = 'wrongWordsCollection:v1';
 const FORGOTTEN_WORDS_COLLECTION_KEY = 'forgottenWordsCollection:v1';
@@ -1308,12 +1308,16 @@ async function showListPreview(listIdx) {
             <button class="forgot-toggle" type="button"></button>
             <div class="pw-cn preview-secret${shouldMaskMeanings ? ' masked' : ''}">${renderHighlightedMeaning(word.meaning)}</div>
             <div class="pw-example">
-                <div class="pw-example-label">场景例句</div>
+                <div class="pw-example-head">
+                    <div class="pw-example-label">场景例句</div>
+                    <button class="example-speak-btn" type="button" aria-label="朗读 ${escapeHtml(word.word)} 的例句">🔊</button>
+                </div>
                 <div class="pw-example-en">${highlightText(example.en, word.word, 'word-highlight')}</div>
                 <div class="pw-example-zh preview-secret${shouldMaskMeanings ? ' masked' : ''}">${highlightText(example.zh, example.meaning, 'meaning-highlight')}</div>
             </div>
         `;
         div.querySelector('.preview-speak-btn').onclick = () => speakSpecificWord(word);
+        div.querySelector('.example-speak-btn').onclick = () => speakWithBrowserTTS(example.en);
         const forgotButton = div.querySelector('.forgot-toggle');
         const renderForgotButton = () => {
             const forgotten = isForgottenWord(word);
