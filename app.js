@@ -19,13 +19,14 @@ let app = {
 };
 
 let currentBookKey = 'cet4';
-const APP_VERSION = 'v2026.05.12-2';
+const APP_VERSION = 'v2026.05.12-3';
 const WORD_APP_STATE_KEY = 'wordAppState';
 const WRONG_WORDS_COLLECTION_KEY = 'wrongWordsCollection:v1';
 const FORGOTTEN_WORDS_COLLECTION_KEY = 'forgottenWordsCollection:v1';
 const WORD_STATS_KEY = 'wordStats:v1';
 const WORDS_PER_LIST_KEY = 'wordsPerList:v1';
 const WORD_BOOKS_CACHE_KEY = 'wordBooksManifest:v1';
+const SPEECH_VOICE_KEY = 'speechVoice:v1';
 const LEGACY_WORD_BOOKS_CACHE_KEYS = ['wordBooksCache', 'wordBooksCache:v2', 'wordBooksCache:v3'];
 const WORD_BOOKS_MANIFEST_PATH = 'books_manifest.json';
 const BOOK_NAMES = {cet4: '四级词汇', cet6: '六级词汇', kaoyan: '考研词汇'};
@@ -517,6 +518,7 @@ async function ensureBookLoaded(bookKey) {
 function refreshEnglishVoices() {
     if (!('speechSynthesis' in window)) {
         englishVoices = [];
+        renderVoiceOptions();
         return englishVoices;
     }
 
@@ -528,23 +530,92 @@ function refreshEnglishVoices() {
                 let result = 0;
                 if (voice.default) result += 100;
                 if (/en-us/i.test(voice.lang)) result += 20;
-                if (/samantha|alex|daniel|serena|victoria|ava|allison/i.test(voice.name)) result += 10;
-                if (/compact/i.test(voice.name)) result -= 5;
+                if (/premium|enhanced/i.test(voice.name)) result += 30;
+                if (/samantha|alex|daniel|serena|victoria|ava|allison|karen|moira|tessa/i.test(voice.name)) result += 16;
+                if (/compact|novelty/i.test(voice.name)) result -= 12;
                 return result;
             };
             return score(b) - score(a);
         });
+    renderVoiceOptions();
     return englishVoices;
+}
+
+function getVoiceId(voice) {
+    return voice ? `${voice.name}::${voice.lang}::${voice.voiceURI}` : '';
+}
+
+function getSelectedSpeechVoiceId() {
+    return localStorage.getItem(SPEECH_VOICE_KEY) || '';
 }
 
 function getPreferredEnglishVoice() {
     if (!englishVoices.length) {
         refreshEnglishVoices();
     }
+    const selectedId = getSelectedSpeechVoiceId();
+    if (selectedId) {
+        const selectedVoice = englishVoices.find(voice => getVoiceId(voice) === selectedId);
+        if (selectedVoice) return selectedVoice;
+    }
     return englishVoices[0] || null;
 }
 
-function speakWithBrowserTTS(text) {
+function selectSpeechVoice(voiceId) {
+    if (voiceId) {
+        localStorage.setItem(SPEECH_VOICE_KEY, voiceId);
+    } else {
+        localStorage.removeItem(SPEECH_VOICE_KEY);
+    }
+    renderVoiceOptions();
+}
+
+function renderVoiceOptions() {
+    const select = document.getElementById('voice-select');
+    const info = document.getElementById('voice-info');
+    if (!select || !info) return;
+
+    const selectedId = getSelectedSpeechVoiceId();
+    select.innerHTML = '<option value="">自动选择</option>';
+
+    if (!('speechSynthesis' in window)) {
+        info.textContent = '当前浏览器不支持系统朗读。';
+        return;
+    }
+
+    if (!englishVoices.length) {
+        info.textContent = '暂未读取到英文声音，稍后再打开此页或点试听。';
+        return;
+    }
+
+    englishVoices.forEach(voice => {
+        const option = document.createElement('option');
+        option.value = getVoiceId(voice);
+        option.textContent = `${voice.name} · ${voice.lang}${voice.default ? ' · 默认' : ''}`;
+        select.appendChild(option);
+    });
+
+    if (selectedId && englishVoices.some(voice => getVoiceId(voice) === selectedId)) {
+        select.value = selectedId;
+    } else {
+        select.value = '';
+    }
+
+    const activeVoice = getPreferredEnglishVoice();
+    info.textContent = activeVoice
+        ? `当前使用：${activeVoice.name} · ${activeVoice.lang}`
+        : `已读取 ${englishVoices.length} 个英文声音`;
+}
+
+function previewSelectedVoice() {
+    refreshEnglishVoices();
+    speakWithBrowserTTS('This is a natural English sentence for your word list preview.', {
+        rate: 0.9,
+        pitch: 1
+    });
+}
+
+function speakWithBrowserTTS(text, options = {}) {
     if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
         return false;
     }
@@ -557,8 +628,8 @@ function speakWithBrowserTTS(text) {
     if (voice) {
         utterance.voice = voice;
     }
-    utterance.rate = 0.95;
-    utterance.pitch = 1;
+    utterance.rate = options.rate || 0.92;
+    utterance.pitch = options.pitch || 1;
     utterance.volume = 1;
 
     synth.cancel();
@@ -1889,6 +1960,8 @@ window.addEventListener('load', () => {
     if ('speechSynthesis' in window) {
         refreshEnglishVoices();
         window.speechSynthesis.onvoiceschanged = refreshEnglishVoices;
+        window.setTimeout(refreshEnglishVoices, 400);
+        window.setTimeout(refreshEnglishVoices, 1200);
     }
     loadWordBooks();
 });

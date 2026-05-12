@@ -83,6 +83,16 @@
 
                 <section class="home-section" id="home-tab-help">
                     <div class="card">
+                        <h2 class="home-section-title">朗读设置</h2>
+                        <label>🔊 英文朗读声音</label>
+                        <select id="voice-select" onchange="selectSpeechVoice(this.value)">
+                            <option value="">自动选择</option>
+                        </select>
+                        <button class="btn btn-secondary" type="button" onclick="previewSelectedVoice()">试听当前声音</button>
+                        <div id="voice-info" class="resume-info">正在读取系统声音...</div>
+                    </div>
+
+                    <div class="card">
                         <h2 class="home-section-title">使用帮助</h2>
                         <label>📱 iPhone 使用提示</label>
                         <div class="tip-list">
