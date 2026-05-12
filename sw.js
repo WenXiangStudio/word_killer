@@ -1,4 +1,4 @@
-const CACHE_NAME = 'wordkiller-v24';
+const CACHE_NAME = 'wordkiller-v25';
 const APP_SHELL = [
   new URL('./', self.location).toString(),
   new URL('index.html', self.location).toString(),
@@ -37,9 +37,13 @@ self.addEventListener('fetch', event => {
   const isNetworkFirst =
     event.request.mode === 'navigate' ||
     url.pathname.endsWith('/index.html') ||
+    url.pathname.endsWith('/style.css') ||
+    url.pathname.endsWith('/app.js') ||
+    url.pathname.endsWith('/phonetic_db.js') ||
     url.pathname.endsWith('/books_manifest.json') ||
     url.pathname.includes('/books/') ||
-    url.pathname.endsWith('/manifest.json');
+    url.pathname.endsWith('/manifest.json') ||
+    url.pathname.endsWith('/sw.js');
 
   if (isNetworkFirst) {
     event.respondWith(

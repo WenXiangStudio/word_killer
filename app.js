@@ -19,7 +19,7 @@ let app = {
 };
 
 let currentBookKey = 'cet4';
-const APP_VERSION = 'v2026.05.12-3';
+const APP_VERSION = 'v2026.05.12-4';
 const WORD_APP_STATE_KEY = 'wordAppState';
 const WRONG_WORDS_COLLECTION_KEY = 'wrongWordsCollection:v1';
 const FORGOTTEN_WORDS_COLLECTION_KEY = 'forgottenWordsCollection:v1';
@@ -1967,5 +1967,14 @@ window.addEventListener('load', () => {
 });
 
 if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js');
+    let serviceWorkerRefreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (serviceWorkerRefreshing) return;
+        serviceWorkerRefreshing = true;
+        window.location.reload();
+    });
+
+    navigator.serviceWorker.register('sw.js').then(registration => {
+        registration.update().catch(() => {});
+    });
 }
